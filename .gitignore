@@ -8,3 +8,10 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Environment variables (secrets — NEVER commit this)
+.env
+
+# IDE
+.vscode/
+.idea/
