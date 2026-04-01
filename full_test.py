@@ -136,6 +136,70 @@ def run_full_flow():
         print(f"✅ Guest {g['name']} Wallet Balance: ₹{wallet_data['balance']} | TX count: {len(wallet_data.get('transactions', []))}")
         wallet_balances[g['id']] = float(wallet_data['balance'])
 
+    # ============================================================
+    # 5.7 Creating Event Microsite (Phase 2E)
+    # ============================================================
+    print_step("5.7 Creating Event Microsite (Phase 2E)")
+    microsite_payload = {
+        "slug": "e2e-annual-offsite",
+        "theme_color": "#1e293b",
+        "welcome_message": "Welcome to the Goa Offsite 2026!",
+        "is_published": True
+    }
+    r = session.post(f"{BASE_URL}/events/{event_id}/microsite", json=microsite_payload)
+    print_response(r)
+    assert r.status_code in [201, 200], "Failed to create microsite"
+    print(f"✅ Created Microsite with slug: {microsite_payload['slug']}")
+
+    # ============================================================
+    # 5.8 Test Zero-Friction Routing (Employee View)
+    # ============================================================
+    print_step("5.8 Testing Zero-Friction Routing (Employee View)")
+    emp_token = guests[0]["booking_token"]
+    slug = microsite_payload["slug"]
+    
+    # Fetch Event Details (Unauthenticated)
+    r = requests.get(f"{BASE_URL}/public/microsites/{slug}?token={emp_token}")
+    print_response(r)
+    assert r.status_code == 200, "Failed to authenticate magic link"
+    details = r.json()
+    print(f"✅ Magic Link verified! Welcome {details['guest_name']} ({details['guest_category']})")
+    
+    # Fetch Filtered Rooms (Unauthenticated)
+    r = requests.get(f"{BASE_URL}/public/microsites/{slug}/rooms?token={emp_token}")
+    assert r.status_code == 200
+    rooms = r.json()["options"]
+    print(f"Found {len(rooms)} room options for Employee.")
+    
+    # Verify Employee Constraints
+    room_types = [rm["room_type"] for rm in rooms]
+    assert "suite" not in room_types, "Employee should NOT see suite"
+    for rm in rooms:
+        print(f"   - {rm['room_type'].title()}: ₹{rm['negotiated_rate']}/night (Owe out-of-pocket: ₹{rm['amount_due']}) | Available: {rm['available_rooms']}")
+        if rm["room_type"] == "standard":
+            # Subsidy is ₹5000 * 3 nights = ₹15,000. Base room = ₹8000 * 3 = ₹24000. Due = ₹9000.
+            assert rm["amount_due"] == 9000.0, f"Math error on amount_due expected 9000.0, got {rm['amount_due']}"
+            assert rm["available_rooms"] == 2, "Availability should initially be 2"
+
+    # ============================================================
+    # 5.9 Test Zero-Friction Routing (VIP View)
+    # ============================================================
+    print_step("5.9 Testing Zero-Friction Routing (VIP View)")
+    vip_token = guests[3]["booking_token"]
+    r = requests.get(f"{BASE_URL}/public/microsites/{slug}/rooms?token={vip_token}")
+    assert r.status_code == 200
+    vip_rooms = r.json()["options"]
+    vip_types = [rm["room_type"] for rm in vip_rooms]
+    print(f"VIP Room Types available: {vip_types}")
+    assert "standard" not in vip_types, "VIP should NOT see standard rooms due to category rules"
+    assert "deluxe" in vip_types, "VIP should see deluxe"
+    for rm in vip_rooms:
+        if rm["room_type"] == "deluxe":
+            # VIP rule allows deluxe, subsidy is ₹15,000/night * 3 = ₹45,000.
+            # Base = ₹12,000 * 3 = ₹36,000. Due = max(0, 36000 - 45000) = 0
+            assert rm["amount_due"] == 0.0, f"Negative Subsidy Bug detected! Amount returned: {rm['amount_due']}"
+            print(f"✅ Negative Subsidy Bug test passed! MAX(0) ceiling applied successfully.")
+
     # Phase 2C Booking Flow Tests
     
     # 6. Guest 1 and Guest 2 consume all standard rooms
