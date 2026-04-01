@@ -20,6 +20,8 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.wallets.service import create_wallet
+from app.models.event import Event
 from app.models.guest import Guest
 from app.schemas.guest import (
     GuestBulkCreate,
@@ -84,6 +86,22 @@ async def create_guest(
     try:
         await db.commit()
         await db.refresh(guest)
+        
+        # Phase 2D: Auto-create wallet for guest based on event category rules
+        # Fetch event to get the category_rules
+        event_result = await db.execute(select(Event).where(Event.id == event_id))
+        event = event_result.scalar_one_or_none()
+        
+        initial_balance = 0
+        if event and event.category_rules:
+            # Safely extract subsidy from JSONB
+            subsidy_per_night = event.category_rules.get(guest.category, {}).get("subsidy_per_night", 0)
+            target_nights = (event.end_date - event.start_date).days
+            target_nights = max(1, target_nights) # prevent 0 nights
+            initial_balance = subsidy_per_night * target_nights
+            
+        await create_wallet(guest.id, event_id, tenant_id, initial_balance, db)
+        await db.commit() # Commit wallet creation
     except IntegrityError:
         await db.rollback()
         raise ValueError(
@@ -171,6 +189,22 @@ async def bulk_create_guests(
     # Refresh all created guests to get DB-generated fields
     for guest in created_guests:
         await db.refresh(guest)
+        
+    # Phase 2D: Auto-create wallets for all successfully created imported guests
+    event_result = await db.execute(select(Event).where(Event.id == event_id))
+    event = event_result.scalar_one_or_none()
+    
+    for guest in created_guests:
+        initial_balance = 0
+        if event and event.category_rules:
+            subsidy_per_night = event.category_rules.get(guest.category, {}).get("subsidy_per_night", 0)
+            target_nights = (event.end_date - event.start_date).days
+            target_nights = max(1, target_nights)
+            initial_balance = subsidy_per_night * target_nights
+            
+        await create_wallet(guest.id, event_id, tenant_id, initial_balance, db)
+        
+    await db.commit()
 
     return GuestBulkCreateResponse(
         created=len(created_guests),

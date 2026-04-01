@@ -239,8 +239,7 @@ async def promote_next(
     if next_in_line:
         next_in_line.status = "offered"
         next_in_line.offer_expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
-        await db.commit()
-        await db.refresh(next_in_line)
+        
         # In a real system, trigger Celery task to email the guest here.
     
     return next_in_line
@@ -278,36 +277,3 @@ async def update_waitlist_status(
         await promote_next(waitlist_entry.room_block_id, waitlist_entry.room_type, db)
 
     return await get_waitlist_by_id(waitlist_id, tenant_id, db)
-
-
-async def accept_waitlist_offer(
-    waitlist_id: uuid.UUID,
-    db: AsyncSession,
-) -> Waitlist:
-    """
-    Called when a guest accepts a waitlist offer within their 24hr window.
-    This effectively converts their status from 'offered' to 'converted'.
-    The frontend should immediately redirect them to the booking/hold process.
-    """
-    w_result = await db.execute(select(Waitlist).where(Waitlist.id == waitlist_id))
-    waitlist = w_result.scalar_one_or_none()
-    
-    if not waitlist:
-        raise ValueError("Waitlist entry not found.")
-        
-    if waitlist.status != "offered":
-        raise ValueError(f"Invalid waitlist status to accept: {waitlist.status}")
-
-    # Validate 24hr expiry
-    if waitlist.offer_expires_at and waitlist.offer_expires_at < datetime.now(timezone.utc):
-        waitlist.status = "expired"
-        await db.commit()
-        # Cascade promote to the NEXT person
-        await promote_next(waitlist.room_block_id, waitlist.room_type, db)
-        raise ValueError("This waitlist offer has expired.")
-
-    waitlist.status = "converted"
-    await db.commit()
-    await db.refresh(waitlist)
-
-    return waitlist

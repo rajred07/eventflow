@@ -54,13 +54,18 @@ async def _async_release_expired_holds() -> int:
                 
                 booking.status = "EXPIRED"
                 
+                # 4. Trigger the waitlist loop
+                await promote_next(
+                    booking.room_block_id, 
+                    booking.room_type, 
+                    db, 
+                    skip_locked=True
+                )
+                
                 await db.commit()
                 released_count += 1
                 
                 logger.info(f"Released expired hold {booking.id} for {booking.room_type}")
-
-                # 4. Trigger the waitlist loop
-                await promote_next(booking.room_block_id, booking.room_type, db)
                 
             except Exception as e:
                 await db.rollback()
@@ -96,13 +101,14 @@ async def _async_expire_waitlist_offers() -> int:
         for offer in expired_offers:
             try:
                 offer.status = "expired"
+                
+                # Cascade: Someone else might still be waiting
+                await promote_next(offer.room_block_id, offer.room_type, db, skip_locked=True)
+                
                 await db.commit()
                 expired_count += 1
                 
                 logger.info(f"Waitlist offer {offer.id} expired.")
-                
-                # Cascade: Someone else might still be waiting
-                await promote_next(offer.room_block_id, offer.room_type, db)
                 
             except Exception as e:
                 await db.rollback()

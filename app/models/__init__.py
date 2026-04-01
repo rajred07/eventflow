@@ -15,8 +15,10 @@ from app.models.user import User
 from app.models.venue import Venue
 from app.models.waitlist import Waitlist
 from app.models.booking import Booking
+from app.models.wallet import Wallet, WalletTransaction
 
 __all__ = [
     "Base", "Tenant", "User", "Event", "Venue", "Guest",
     "RoomBlock", "RoomBlockAllotment", "Waitlist", "Booking",
+    "Wallet", "WalletTransaction"
 ]

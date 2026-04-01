@@ -14,10 +14,12 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.waitlists.service import promote_next
+from app.core.wallets.service import credit_on_cancellation, debit_on_booking
 from app.models.booking import Booking
 from app.models.guest import Guest
 from app.models.room_block import RoomBlock
 from app.models.room_block_allotment import RoomBlockAllotment
+from app.models.wallet import Wallet
 from app.schemas.booking import BookingHoldRequest
 
 
@@ -183,6 +185,20 @@ async def confirm_hold(
     booking.status = "CONFIRMED"
     booking.payment_reference = payment_reference
     booking.hold_expires_at = None
+
+    # Phase 2D: Wallet Integration (Split Ledger)
+    wallet_result = await db.execute(
+        select(Wallet).where(Wallet.guest_id == booking.guest_id)
+    )
+    wallet = wallet_result.scalar_one_or_none()
+
+    if wallet and wallet.balance > 0:
+        # Deduct from wallet if possible
+        subsidy_amount = min(wallet.balance, booking.total_cost)
+        if subsidy_amount > 0:
+            await debit_on_booking(wallet.id, booking.id, subsidy_amount, db)
+            booking.subsidy_applied = subsidy_amount
+            booking.amount_due = booking.total_cost - subsidy_amount
     
     await db.commit()
     await db.refresh(booking)
@@ -200,6 +216,57 @@ async def confirm_hold(
 # ---------------------------------------------------------------------------
 
 
+# async def cancel_booking(
+#     booking_id: uuid.UUID,
+#     db: AsyncSession,
+#     redis: Redis,
+# ) -> Booking:
+#     """
+#     Cancel an active reservation and immediately promote the next waitlist person.
+#     """
+#     booking_result = await db.execute(
+#         select(Booking).where(Booking.id == booking_id)
+#     )
+#     booking = booking_result.scalar_one_or_none()
+    
+#     if not booking:
+#         raise ValueError("Booking not found.")
+
+#     if booking.status == "CANCELLED":
+#         return booking
+
+#     # Update the allotment row and state
+#     allotment_result = await db.execute(
+#         select(RoomBlockAllotment)
+#         .where(RoomBlockAllotment.id == booking.allotment_id)
+#         .with_for_update()
+#     )
+#     allotment = allotment_result.scalar_one()
+
+#     if booking.status == "CONFIRMED":
+#         if allotment.booked_rooms > 0:
+#             allotment.booked_rooms -= 1
+#     elif booking.status == "HELD":
+#         if allotment.held_rooms > 0:
+#             allotment.held_rooms -= 1
+#         # Also clean up redis just in case
+#         lock_key = f"hold:{booking.room_block_id}:{booking.room_type}:{booking.guest_id}"
+#         await redis.delete(lock_key)
+
+#     booking.status = "CANCELLED"
+#     booking.hold_expires_at = None
+#     allotment.version += 1
+
+#     # WAITLIST CASCADE TRIGGER
+#     # Promote the next person — NO commit inside promote_next,
+#     # everything flushes together below.
+#     await promote_next(booking.room_block_id, booking.room_type, db)
+
+#     # Single commit — cancellation + promotion are atomic.
+#     await db.commit()
+#     await db.refresh(booking)
+#     return booking
+
 async def cancel_booking(
     booking_id: uuid.UUID,
     db: AsyncSession,
@@ -207,50 +274,57 @@ async def cancel_booking(
 ) -> Booking:
     """
     Cancel an active reservation and immediately promote the next waitlist person.
+    Everything runs in a single transaction — one commit at the end.
     """
     booking_result = await db.execute(
         select(Booking).where(Booking.id == booking_id)
     )
     booking = booking_result.scalar_one_or_none()
-    
+ 
     if not booking:
         raise ValueError("Booking not found.")
-
+ 
     if booking.status == "CANCELLED":
         return booking
-
-    # Update the allotment row and state
+ 
+    # Lock the allotment row and decrement the right counter
     allotment_result = await db.execute(
         select(RoomBlockAllotment)
         .where(RoomBlockAllotment.id == booking.allotment_id)
         .with_for_update()
     )
     allotment = allotment_result.scalar_one()
-
+ 
     if booking.status == "CONFIRMED":
         if allotment.booked_rooms > 0:
             allotment.booked_rooms -= 1
     elif booking.status == "HELD":
         if allotment.held_rooms > 0:
             allotment.held_rooms -= 1
-        # Also clean up redis just in case
         lock_key = f"hold:{booking.room_block_id}:{booking.room_type}:{booking.guest_id}"
         await redis.delete(lock_key)
-
+ 
     booking.status = "CANCELLED"
     booking.hold_expires_at = None
     allotment.version += 1
-
-    await db.commit()
-
-    # WAITLIST CASCADE TRIGGER
-    # Someone cancelled, meaning a room just opened up!
+ 
+    # Phase 2D: Refund the corporate wallet if subsidy was applied
+    if booking.subsidy_applied > 0:
+        wallet_result = await db.execute(
+            select(Wallet).where(Wallet.guest_id == booking.guest_id)
+        )
+        wallet = wallet_result.scalar_one_or_none()
+        if wallet:
+            await credit_on_cancellation(wallet.id, booking.id, booking.subsidy_applied, db)
+ 
+    # Promote the next person — NO commit inside promote_next,
+    # everything flushes together below.
     await promote_next(booking.room_block_id, booking.room_type, db)
-
+ 
+    # Single commit — cancellation + promotion are atomic.
+    await db.commit()
     await db.refresh(booking)
     return booking
-
-
 # ---------------------------------------------------------------------------
 # Queries
 # ---------------------------------------------------------------------------
