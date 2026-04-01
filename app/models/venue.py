@@ -14,7 +14,7 @@ for NLP-powered venue search.
 
 from sqlalchemy import Float, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 
@@ -61,6 +61,9 @@ class Venue(Base):
     # Phase 3 additions (commented out until pgvector is set up):
     # embedding: Mapped[list] = mapped_column(Vector(768))  # pgvector
     # search_vector: Mapped[str] = mapped_column(TSVector)  # Full-text search
+    
+    # Relationships
+    room_blocks = relationship("RoomBlock", back_populates="venue", lazy="selectin")
 
     def __repr__(self) -> str:
         return f"<Venue {self.name} ({self.city})>"

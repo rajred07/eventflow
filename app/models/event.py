@@ -79,6 +79,8 @@ class Event(Base):
     # Relationships
     tenant = relationship("Tenant", back_populates="events")
     creator = relationship("User", foreign_keys=[created_by])
+    guests = relationship("Guest", back_populates="event", lazy="selectin")
+    room_blocks = relationship("RoomBlock", back_populates="event", lazy="selectin")
 
     def __repr__(self) -> str:
         return f"<Event {self.name} ({self.type}, {self.status})>"

@@ -7,6 +7,23 @@ from app.schemas.auth import (
     UserResponse,
 )
 from app.schemas.event import EventCreate, EventListResponse, EventResponse, EventUpdate
+from app.schemas.guest import (
+    GuestBulkCreate,
+    GuestBulkCreateResponse,
+    GuestCreate,
+    GuestListResponse,
+    GuestResponse,
+    GuestUpdate,
+)
+from app.schemas.room_block import (
+    AllotmentCreate,
+    AllotmentResponse,
+    AllotmentUpdate,
+    RoomBlockCreate,
+    RoomBlockListResponse,
+    RoomBlockResponse,
+    RoomBlockUpdate,
+)
 from app.schemas.venue import VenueFilterParams, VenueListResponse, VenueResponse
 
 __all__ = [
@@ -22,4 +39,17 @@ __all__ = [
     "VenueResponse",
     "VenueListResponse",
     "VenueFilterParams",
+    "GuestCreate",
+    "GuestUpdate",
+    "GuestResponse",
+    "GuestListResponse",
+    "GuestBulkCreate",
+    "GuestBulkCreateResponse",
+    "RoomBlockCreate",
+    "RoomBlockUpdate",
+    "RoomBlockResponse",
+    "RoomBlockListResponse",
+    "AllotmentCreate",
+    "AllotmentUpdate",
+    "AllotmentResponse",
 ]

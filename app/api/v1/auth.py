@@ -49,6 +49,9 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
     Creates a new tenant organization and its first admin user.
     Returns JWT tokens for immediate login.
     """
+    from sqlalchemy import text
+    await db.execute(text("SET app.bypass_rls = 'on'"))
+    
     # Check if email already exists
     existing = await db.execute(select(User).where(User.email == data.email))
     if existing.scalar_one_or_none():
@@ -107,6 +110,9 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
 )
 async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
     """Authenticate user and return JWT tokens."""
+    from sqlalchemy import text
+    await db.execute(text("SET app.bypass_rls = 'on'"))
+
     # Find user by email
     result = await db.execute(select(User).where(User.email == data.email))
     user = result.scalar_one_or_none()
@@ -150,6 +156,9 @@ async def refresh_token(data: RefreshRequest, db: AsyncSession = Depends(get_db)
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired refresh token",
         )
+
+    from sqlalchemy import text
+    await db.execute(text("SET app.bypass_rls = 'on'"))
 
     # Verify user still exists and is active
     import uuid

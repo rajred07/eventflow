@@ -15,6 +15,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.auth import router as auth_router
 from app.api.v1.events import router as events_router
+from app.api.v1.guests import router as guests_router
+from app.api.v1.room_blocks import blocks_router, event_blocks_router
 from app.api.v1.venues import router as venues_router
 from app.config import settings
 from app.db.session import engine
@@ -74,6 +76,9 @@ app.add_middleware(
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(events_router, prefix="/api/v1")
 app.include_router(venues_router, prefix="/api/v1")
+app.include_router(guests_router, prefix="/api/v1")
+app.include_router(event_blocks_router, prefix="/api/v1")
+app.include_router(blocks_router, prefix="/api/v1")
 
 
 # Health check — useful for Docker health checks and monitoring
