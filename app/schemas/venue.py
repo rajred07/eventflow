@@ -8,6 +8,15 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 
+class VenueCreate(BaseModel):
+    """Payload to create a new venue."""
+    name: str
+    city: str
+    state: str
+    total_rooms: int = 100
+    contact_email: str | None = None
+
+
 class VenueResponse(BaseModel):
     """Full venue data returned in API responses."""
 

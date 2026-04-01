@@ -15,6 +15,12 @@ from app.schemas.guest import (
     GuestResponse,
     GuestUpdate,
 )
+from app.schemas.booking import (
+    BookingHoldRequest,
+    BookingConfirmRequest,
+    BookingResponse,
+    BookingListResponse,
+)
 from app.schemas.room_block import (
     AllotmentCreate,
     AllotmentResponse,
@@ -24,7 +30,13 @@ from app.schemas.room_block import (
     RoomBlockResponse,
     RoomBlockUpdate,
 )
-from app.schemas.venue import VenueFilterParams, VenueListResponse, VenueResponse
+from app.schemas.venue import VenueFilterParams, VenueListResponse, VenueResponse, VenueCreate
+from app.schemas.waitlist import (
+    WaitlistActionRequest,
+    WaitlistCreate,
+    WaitlistListResponse,
+    WaitlistResponse,
+)
 
 __all__ = [
     "RegisterRequest",
@@ -39,6 +51,7 @@ __all__ = [
     "VenueResponse",
     "VenueListResponse",
     "VenueFilterParams",
+    "VenueCreate",
     "GuestCreate",
     "GuestUpdate",
     "GuestResponse",
@@ -52,4 +65,12 @@ __all__ = [
     "AllotmentCreate",
     "AllotmentUpdate",
     "AllotmentResponse",
+    "WaitlistCreate",
+    "WaitlistActionRequest",
+    "WaitlistResponse",
+    "WaitlistListResponse",
+    "BookingHoldRequest",
+    "BookingConfirmRequest",
+    "BookingResponse",
+    "BookingListResponse",
 ]

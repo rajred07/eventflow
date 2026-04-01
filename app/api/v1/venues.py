@@ -18,9 +18,31 @@ from app.db.session import get_db
 from app.middleware.auth import get_current_user
 from app.models.user import User
 from app.models.venue import Venue
-from app.schemas.venue import VenueListResponse, VenueResponse
+from app.schemas.venue import VenueListResponse, VenueResponse, VenueCreate
 
 router = APIRouter(prefix="/venues", tags=["Venues"])
+
+
+@router.post(
+    "",
+    response_model=VenueResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a new venue",
+)
+async def create_venue(
+    data: VenueCreate,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Create a global venue. In a production system, this could be
+    restricted to super-admins, but for testing any authenticated user works.
+    """
+    venue = Venue(**data.model_dump())
+    db.add(venue)
+    await db.commit()
+    await db.refresh(venue)
+    return venue
 
 
 @router.get(
