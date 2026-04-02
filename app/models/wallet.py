@@ -3,7 +3,7 @@ from decimal import Decimal
 from datetime import datetime
 from sqlalchemy import Column, String, DateTime, Numeric, ForeignKey, Boolean
 from sqlalchemy.dialects.postgresql import UUID
-
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
 class Wallet(Base):
@@ -19,6 +19,8 @@ class Wallet(Base):
 
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    guest = relationship("Guest", back_populates="wallet")
 
 class WalletTransaction(Base):
     __tablename__ = "wallet_transactions"

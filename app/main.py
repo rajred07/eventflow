@@ -22,6 +22,8 @@ from app.api.v1.venues import router as venues_router
 from app.api.v1.waitlists import event_waitlist_router, waitlist_router
 from app.api.v1.wallets import router as wallets_router
 from app.api.v1.microsites import router as microsites_router
+from app.api.v1.import_export import router as import_export_router
+from app.api.v1.notifications import router as notifications_router
 from app.config import settings
 from app.db.session import engine
 
@@ -87,6 +89,8 @@ app.include_router(event_waitlist_router, prefix="/api/v1")
 app.include_router(waitlist_router, prefix="/api/v1")
 app.include_router(wallets_router, prefix="/api/v1")
 app.include_router(microsites_router, prefix="/api/v1")
+app.include_router(import_export_router, prefix="/api/v1")
+app.include_router(notifications_router, prefix="/api/v1")
 app.include_router(public_booking_router, prefix="/api/v1")
 app.include_router(event_booking_router, prefix="/api/v1")
 app.include_router(booking_router, prefix="/api/v1")

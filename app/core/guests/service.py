@@ -30,6 +30,7 @@ from app.schemas.guest import (
     GuestResponse,
     GuestUpdate,
 )
+from app.tasks.email_tasks import send_guest_invitation_email
 
 
 async def _verify_event_ownership(
@@ -102,6 +103,9 @@ async def create_guest(
             
         await create_wallet(guest.id, event_id, tenant_id, initial_balance, db)
         await db.commit() # Commit wallet creation
+        
+        # Fire off asynchronous background invitation email
+        send_guest_invitation_email.delay(str(guest.id))
     except IntegrityError:
         await db.rollback()
         raise ValueError(
@@ -205,6 +209,10 @@ async def bulk_create_guests(
         await create_wallet(guest.id, event_id, tenant_id, initial_balance, db)
         
     await db.commit()
+
+    # Fire off bulk asynchronous background invitation emails
+    for guest in created_guests:
+        send_guest_invitation_email.delay(str(guest.id))
 
     return GuestBulkCreateResponse(
         created=len(created_guests),

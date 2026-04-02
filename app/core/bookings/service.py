@@ -7,6 +7,7 @@ Layer 2: PostgreSQL row lock (FOR UPDATE) commits the reservation.
 """
 
 import uuid
+import logging
 from datetime import datetime, timedelta, timezone
 
 from redis.asyncio import Redis
@@ -21,6 +22,9 @@ from app.models.room_block import RoomBlock
 from app.models.room_block_allotment import RoomBlockAllotment
 from app.models.wallet import Wallet
 from app.schemas.booking import BookingHoldRequest
+from app.tasks.email_tasks import send_booking_confirmation_email, send_waitlist_offer_email
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -206,7 +210,8 @@ async def confirm_hold(
     # 4. Release Redis lock affirmatively
     await redis.delete(lock_key)
 
-    # Note: Trigger Celery task here in Phase 2F to email guest confirmation!
+    # Fire off background confirmation email
+    send_booking_confirmation_email.delay(str(booking.id))
 
     return booking
 
@@ -215,57 +220,6 @@ async def confirm_hold(
 # Cancellations & Waitlist Cascade
 # ---------------------------------------------------------------------------
 
-
-# async def cancel_booking(
-#     booking_id: uuid.UUID,
-#     db: AsyncSession,
-#     redis: Redis,
-# ) -> Booking:
-#     """
-#     Cancel an active reservation and immediately promote the next waitlist person.
-#     """
-#     booking_result = await db.execute(
-#         select(Booking).where(Booking.id == booking_id)
-#     )
-#     booking = booking_result.scalar_one_or_none()
-    
-#     if not booking:
-#         raise ValueError("Booking not found.")
-
-#     if booking.status == "CANCELLED":
-#         return booking
-
-#     # Update the allotment row and state
-#     allotment_result = await db.execute(
-#         select(RoomBlockAllotment)
-#         .where(RoomBlockAllotment.id == booking.allotment_id)
-#         .with_for_update()
-#     )
-#     allotment = allotment_result.scalar_one()
-
-#     if booking.status == "CONFIRMED":
-#         if allotment.booked_rooms > 0:
-#             allotment.booked_rooms -= 1
-#     elif booking.status == "HELD":
-#         if allotment.held_rooms > 0:
-#             allotment.held_rooms -= 1
-#         # Also clean up redis just in case
-#         lock_key = f"hold:{booking.room_block_id}:{booking.room_type}:{booking.guest_id}"
-#         await redis.delete(lock_key)
-
-#     booking.status = "CANCELLED"
-#     booking.hold_expires_at = None
-#     allotment.version += 1
-
-#     # WAITLIST CASCADE TRIGGER
-#     # Promote the next person — NO commit inside promote_next,
-#     # everything flushes together below.
-#     await promote_next(booking.room_block_id, booking.room_type, db)
-
-#     # Single commit — cancellation + promotion are atomic.
-#     await db.commit()
-#     await db.refresh(booking)
-#     return booking
 
 async def cancel_booking(
     booking_id: uuid.UUID,
@@ -324,7 +278,10 @@ async def cancel_booking(
     # Single commit — cancellation + promotion are atomic.
     await db.commit()
     await db.refresh(booking)
+
     return booking
+
+
 # ---------------------------------------------------------------------------
 # Queries
 # ---------------------------------------------------------------------------

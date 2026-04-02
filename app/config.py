@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
+    RESEND_API_KEY: str | None = None
+
     # App
     APP_NAME: str = "Eventflow"
     APP_VERSION: str = "0.1.0"

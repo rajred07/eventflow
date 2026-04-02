@@ -1,0 +1,170 @@
+
+============================================================
+???? 1. Registering Tenant & Admin
+============================================================
+Status: 201
+??? Registered & Logged in as admin_1775108207@e2e.com
+
+============================================================
+???? 2. Creating Venue
+============================================================
+Status: 201
+??? Created Venue: 1360628c-a7ff-48a2-a590-5d1635807d08
+
+============================================================
+???? 3. Creating Event
+============================================================
+Status: 201
+??? Created Event: 17f29674-809c-42a6-b547-93d7b1298097
+
+============================================================
+???? 4. Creating Room Block (Phase 2B)
+============================================================
+Status: 201
+??? Created Room Block: a55bb038-4669-4dd3-bd18-802ae3f4861e
+   - standard: 2 rooms (ID: 05d9240c-bdc4-4a9d-b4d2-a1991cbeb0b9)
+   - deluxe: 1 rooms (ID: 0a68c623-d1b8-445f-9d2d-838a3d377534)
+
+============================================================
+???? 5. Creating Guests to Book and Waitlist
+============================================================
+??? Created Guest: Alice (Employee) | Token: fd8bae60-b042-442a-b27e-3dcb79b3f01c
+??? Created Guest: Bob (Employee) | Token: d243c179-36b9-4548-b8c3-bbcc76b0ad7e
+??? Created Guest: Charlie (Employee) | Token: 582e216f-5d8e-479b-8413-006765664f1f
+??? Created Guest: Diana (VIP) | Token: 885e2e22-d707-4aa9-bb81-d44a525f0eef
+
+============================================================
+???? 5.5 Verify Auto-Created Wallets (Phase 2D)
+============================================================
+??? Guest Alice (Employee) Wallet Balance: ???15000.00 | TX count: 1
+??? Guest Bob (Employee) Wallet Balance: ???15000.00 | TX count: 1
+??? Guest Charlie (Employee) Wallet Balance: ???15000.00 | TX count: 1
+??? Guest Diana (VIP) Wallet Balance: ???45000.00 | TX count: 1
+
+============================================================
+???? 5.7 Creating Event Microsite (Phase 2E)
+============================================================
+Status: 201
+??? Created Microsite with slug: e2e-annual-offsite
+
+============================================================
+???? 5.8 Testing Zero-Friction Routing (Employee View)
+============================================================
+Status: 200
+??? Magic Link verified! Welcome Alice (Employee) (employee)
+Found 2 room options for Employee.
+   - Standard: ???8000.0/night (Owe out-of-pocket: ???9000.0) | Available: 2
+   - Deluxe: ???12000.0/night (Owe out-of-pocket: ???21000.0) | Available: 1
+
+============================================================
+???? 5.9 Testing Zero-Friction Routing (VIP View)
+============================================================
+VIP Room Types available: ['deluxe']
+??? Negative Subsidy Bug test passed! MAX(0) ceiling applied successfully.
+
+============================================================
+???? 6. Successful Bookings (Consuming Inventory)
+============================================================
+
+--- Booking for Alice (Employee) ---
+Status: 201
+??? Room Held! Temp ID: d4991a92-d408-42c8-9a4d-e70ca9a780e7
+Status: 200
+??? Room Confirmed! Status: CONFIRMED
+??? Phase 2D: Wallet Balance After Booking: ???0.0 (Was: ???15000.0)
+
+--- Booking for Bob (Employee) ---
+Status: 201
+??? Room Held! Temp ID: 09322dc7-619d-4386-af47-dac9b16b7da5
+Status: 200
+??? Room Confirmed! Status: CONFIRMED
+??? Phase 2D: Wallet Balance After Booking: ???0.0 (Was: ???15000.0)
+
+============================================================
+???? 7. Waitlist Trigger Test (Room Unavailability)
+============================================================
+
+--- Booking for Charlie (Employee) (Expect Error) ---
+Status: 409
+Error Response: {"detail":"Room type is fully booked. Please join the waitlist."}
+??? Successfully caught out-of-stock error!
+
+============================================================
+???? 8. Adding Guest 3 to Waitlist
+============================================================
+Status: 201
+??? Guest added to waitlist! Position: 1
+
+============================================================
+???? 9. Cancel Booking & Waitlist Cascade
+============================================================
+Cancelling booking d4991a92-d408-42c8-9a4d-e70ca9a780e7 for Guest 1...
+Status: 200
+??? Booking Cancelled!
+??? Phase 2D: Wallet Balance After Cancellation Refund: ???15000.0
+
+============================================================
+???? 10. Verify Waitlist Promotion
+============================================================
+Waitlist Status for Guest 3: offered
+??? Waitlist correctly promoted to 'offered'!
+
+============================================================
+???? 11. Testing Administrative Wallet Load (Manual Top-Up)
+============================================================
+Initial VIP Balance for Diana (VIP): ???45000.0
+Loading an extra ???10,000 into Diana (VIP)'s wallet...
+Status: 200
+??? New VIP Balance: ???55000.0
+
+============================================================
+???? 12. Verifying Immutable Transaction Ledger
+============================================================
+Found 2 transactions in the ledger.
+??? Found Ledger Entry: TYPE=credit | AMOUNT=???10000.00
+
+============================================================
+???? 13. Testing Event Wallet Summary (CFO Dashboard)
+============================================================
+Status: 200
+Total Wallets: 4
+Total Balance Available: ???85000.00
+Total Corporate Spend: ???30000.00
+??? Financial Aggregation is working perfectly!
+
+============================================================
+???? 14. Verifying Notification Log (Async Email Engine)
+============================================================
+uv : Traceback (most recent call 
+last):
+At line:1 char:47
++ ... n python reset_db.py; uv run 
+python full_test.py > 
+test_logs.txt 2>&1
++                           ~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~
+    + CategoryInfo          : NotS 
+   pecified: (Traceback (most rec  
+  ent call last)::String) [], Re   
+ moteException
+    + FullyQualifiedErrorId : Nati 
+   veCommandError
+ 
+  File "C:\Users\jraj1\OneDrive\Des
+ktop\multi-tennat\eventflow-backend
+\full_test.py", line 432, in 
+<module>
+    run_full_flow()
+    ~~~~~~~~~~~~~^^
+  File "C:\Users\jraj1\OneDrive\Des
+ktop\multi-tennat\eventflow-backend
+\full_test.py", line 357, in 
+run_full_flow
+    auth_headers = 
+{"Authorization": f"Bearer 
+{admin_token}"}
+                                   
+            ^^^^^^^^^^^
+NameError: name 'admin_token' is 
+not defined

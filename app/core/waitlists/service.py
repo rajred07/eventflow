@@ -240,7 +240,9 @@ async def promote_next(
         next_in_line.status = "offered"
         next_in_line.offer_expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
         
-        # In a real system, trigger Celery task to email the guest here.
+        # Trigger Celery task to email the guest
+        from app.tasks.email_tasks import send_waitlist_offer_email
+        send_waitlist_offer_email.delay(str(next_in_line.id))
     
     return next_in_line
 

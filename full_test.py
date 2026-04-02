@@ -3,7 +3,7 @@ import uuid
 import time
 import random
 
-BASE_URL = "http://localhost:8000/api/v1"
+BASE_URL = "http://127.0.0.1:8000/api/v1"
 
 def print_step(title):
     print(f"\n{'='*60}")
@@ -109,8 +109,29 @@ def run_full_flow():
     for al in allotments:
         print(f"   - {al['room_type']}: {al['total_rooms']} rooms (ID: {al['id']})")
 
-    # 5. Create Guests
-    print_step("5. Creating Guests to Book and Waitlist")
+
+
+    # ============================================================
+    # 5. Creating Event Microsite (Phase 2E)
+    # ============================================================
+    # NOTE: We MUST create the microsite BEFORE adding guests, 
+    # so that the Celery worker knows which URL slug to put in the invitation emails!
+    print_step("5. Creating Event Microsite (Phase 2E)")
+    microsite_payload = {
+        "slug": "e2e-annual-offsite",
+        "theme_color": "#1e293b",
+        "welcome_message": "Welcome to the Goa Offsite 2026!",
+        "is_published": True
+    }
+    r = session.post(f"{BASE_URL}/events/{event_id}/microsite", json=microsite_payload)
+    print_response(r)
+    assert r.status_code in [201, 200], "Failed to create microsite"
+    print(f"✅ Created Microsite with slug: {microsite_payload['slug']}")
+
+    # ============================================================
+    # 5.5 Creating Guests to Book and Waitlist
+    # ============================================================
+    print_step("5.5 Creating Guests to Book and Waitlist")
     guests = []
     # Create 4 guests: 3 will fight for 2 standard rooms, 1 will fight for 1 deluxe
     guest_names = ["Alice (Employee)", "Bob (Employee)", "Charlie (Employee)", "Diana (VIP)"]
@@ -126,8 +147,10 @@ def run_full_flow():
         guests.append(r.json())
         print(f"✅ Created Guest: {name} | Token: {r.json()['booking_token']}")
 
-    # 5.5 Check Auto-Created Wallets
-    print_step("5.5 Verify Auto-Created Wallets (Phase 2D)")
+    # ============================================================
+    # 5.7 Verify Auto-Created Wallets (Phase 2D)
+    # ============================================================
+    print_step("5.7 Verify Auto-Created Wallets (Phase 2D)")
     wallet_balances = {}
     for g in guests:
         wallet_res = session.get(f"{BASE_URL}/events/{event_id}/guests/{g['id']}/wallet")
@@ -135,21 +158,47 @@ def run_full_flow():
         wallet_data = wallet_res.json()
         print(f"✅ Guest {g['name']} Wallet Balance: ₹{wallet_data['balance']} | TX count: {len(wallet_data.get('transactions', []))}")
         wallet_balances[g['id']] = float(wallet_data['balance'])
+    # 5. Create Guests
+    # print_step("5. Creating Guests to Book and Waitlist")
+    # guests = []
+    # # Create 4 guests: 3 will fight for 2 standard rooms, 1 will fight for 1 deluxe
+    # guest_names = ["Alice (Employee)", "Bob (Employee)", "Charlie (Employee)", "Diana (VIP)"]
+    # categories = ["employee", "employee", "employee", "vip"]
+    # for name, cat in zip(guest_names, categories):
+    #     g_payload = {
+    #         "name": name,
+    #         "email": f"{name.split()[0].lower()}@e2e.com",
+    #         "category": cat
+    #     }
+    #     r = session.post(f"{BASE_URL}/events/{event_id}/guests", json=g_payload)
+    #     assert r.status_code in [201, 200], f"Failed to create guest {name}"
+    #     guests.append(r.json())
+    #     print(f"✅ Created Guest: {name} | Token: {r.json()['booking_token']}")
 
-    # ============================================================
-    # 5.7 Creating Event Microsite (Phase 2E)
-    # ============================================================
-    print_step("5.7 Creating Event Microsite (Phase 2E)")
-    microsite_payload = {
-        "slug": "e2e-annual-offsite",
-        "theme_color": "#1e293b",
-        "welcome_message": "Welcome to the Goa Offsite 2026!",
-        "is_published": True
-    }
-    r = session.post(f"{BASE_URL}/events/{event_id}/microsite", json=microsite_payload)
-    print_response(r)
-    assert r.status_code in [201, 200], "Failed to create microsite"
-    print(f"✅ Created Microsite with slug: {microsite_payload['slug']}")
+    # # 5.5 Check Auto-Created Wallets
+    # print_step("5.5 Verify Auto-Created Wallets (Phase 2D)")
+    # wallet_balances = {}
+    # for g in guests:
+    #     wallet_res = session.get(f"{BASE_URL}/events/{event_id}/guests/{g['id']}/wallet")
+    #     assert wallet_res.status_code == 200, "Wallet not found"
+    #     wallet_data = wallet_res.json()
+    #     print(f"✅ Guest {g['name']} Wallet Balance: ₹{wallet_data['balance']} | TX count: {len(wallet_data.get('transactions', []))}")
+    #     wallet_balances[g['id']] = float(wallet_data['balance'])
+
+    # # ============================================================
+    # # 5.7 Creating Event Microsite (Phase 2E)
+    # # ============================================================
+    # print_step("5.7 Creating Event Microsite (Phase 2E)")
+    # microsite_payload = {
+    #     "slug": "e2e-annual-offsite",
+    #     "theme_color": "#1e293b",
+    #     "welcome_message": "Welcome to the Goa Offsite 2026!",
+    #     "is_published": True
+    # }
+    # r = session.post(f"{BASE_URL}/events/{event_id}/microsite", json=microsite_payload)
+    # print_response(r)
+    # assert r.status_code in [201, 200], "Failed to create microsite"
+    # print(f"✅ Created Microsite with slug: {microsite_payload['slug']}")
 
     # ============================================================
     # 5.8 Test Zero-Friction Routing (Employee View)
@@ -347,6 +396,89 @@ def run_full_flow():
     
     assert summary_data["total_wallets"] == 4, "System should report exactly 4 wallets for the 4 guests created."
     print("✅ Financial Aggregation is working perfectly!")
+
+    # ============================================================
+    # 14. Verifying the Notification Log (Async Celery Workers)
+    # ============================================================
+    print_step("14. Verifying Notification Log (Async Email Engine)")
+    
+    # We must construct the Authorization header since this is exactly what the frontend uses
+    auth_headers = {"Authorization": f"Bearer {token}"}
+    
+    print("\n⏳ Winding down: Waiting 3 seconds for Celery Workers to finish processing Resend emails...")
+    time.sleep(3)
+    
+    # We query the endpoint that reads from the NotificationLog table
+    r_notif = session.get(f"{BASE_URL}/events/{event_id}/notifications", headers=auth_headers)
+    print_response(r_notif)
+    assert r_notif.status_code == 200, "Failed to fetch notification logs"
+    
+    logs = r_notif.json().get("items", [])
+    print(f"\nTotal background emails processed by Celery: {len(logs)}\n")
+    
+    # 14a. Verify Invitations (Triggered in Step 5 when guests were uploaded)
+    invites = [log for log in logs if log['type'] == 'invitation']
+    print(f"📧 INVITATIONS SENT: {len(invites)}")
+    for inv in invites:
+        print(f"   -> To: {inv['recipient_email']} | Status: {inv['status']}")
+    assert len(invites) == 4, "Expected exactly 4 invitation emails to be sent!"
+
+    # 14b. Verify Confirmations (Triggered in Step 6 when Razorpay webhooks fired)
+    confirmations = [log for log in logs if log['type'] == 'booking_confirmation']
+    print(f"\n🎫 BOOKING CONFIRMATIONS SENT: {len(confirmations)}")
+    for conf in confirmations:
+        print(f"   -> To: {conf['recipient_email']} | Status: {conf['status']}")
+    assert len(confirmations) == 2, "Expected exactly 2 booking confirmation emails!"
+
+    # 14c. Verify Waitlist Cascade (Triggered in Step 9 when Alice cancelled)
+    waitlist_offers = [log for log in logs if log['type'] == 'waitlist_offer']
+    print(f"\n⏳ WAITLIST OFFERS SENT: {len(waitlist_offers)}")
+    for offer in waitlist_offers:
+        print(f"   -> To: {offer['recipient_email']} | Status: {offer['status']}")
+    assert len(waitlist_offers) == 1, "Expected exactly 1 waitlist offer email due to Alice's cancellation!"
+    
+    # Verify it went to Charlie (Guest 3) since he was position #1
+    assert waitlist_offers[0]['recipient_email'] == guests[2]['email'], "Waitlist offer went to the wrong person!"
+    print("✅ Asynchronous Email Engine is working flawlessly across all event triggers!")
+
+
+    # ============================================================
+    # 15. Exporting the Rooming List CSV (Hotel Handoff)
+    # ============================================================
+    print_step("15. Exporting the Rooming List CSV (Hotel Handoff)")
+    
+    # Call the streaming endpoint
+    r_csv = session.get(f"{BASE_URL}/events/{event_id}/rooming-list", headers=auth_headers)
+    
+    if r_csv.status_code != 200:
+        print(f"Server Error {r_csv.status_code}: {r_csv.text}")
+    print_response(r_csv)
+    assert r_csv.status_code == 200, "Failed to download Rooming List CSV"
+    assert "text/csv" in r_csv.headers.get("Content-Type", ""), "Endpoint did not return a CSV format!"
+    
+    # Parse the CSV string response
+    csv_text = r_csv.text
+    lines = csv_text.strip().split("\n")
+    
+    print(f"\n✅ Successfully downloaded Rooming List CSV! Total Rows: {len(lines)}")
+    print("\n--- 🏨 FINAL HOTEL ROOMING LIST PREVIEW ---")
+    for index, line in enumerate(lines):
+        if index == 0:
+            print(f"HEADER: {line}") # Print the column headers
+        else:
+            print(f"ROW {index}: {line}")
+    print("-------------------------------------------\n")
+    
+    # 15a. Assert Bob is in the CSV (He booked and kept his room)
+    assert guests[1]["name"] in csv_text, "Bob (Employee) should be in the confirmed rooming list!"
+    
+    # 15b. Assert Alice is NOT in the CSV (She booked, but cancelled)
+    assert guests[0]["name"] not in csv_text, "Alice (Employee) cancelled, she should NOT be in the rooming list!"
+    
+    # 15c. Assert Charlie is NOT in the CSV (He was offered a room, but hasn't paid/confirmed yet)
+    assert guests[2]["name"] not in csv_text, "Charlie (Employee) is only offered, not confirmed. Should NOT be in list!"
+
+    print("✅ Complex SQL JOIN & Data Export successfully filtered the correct final headcount!")
 
     print_step("🎉 E2E TESTS COMPLETED SUCCESSFULLY!")
 

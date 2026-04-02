@@ -91,6 +91,7 @@ class Guest(Base):
     # Relationships
     tenant = relationship("Tenant")
     event = relationship("Event", back_populates="guests")
+    wallet = relationship("Wallet", back_populates="guest", uselist=False)
 
     def __repr__(self) -> str:
         return f"<Guest {self.name} ({self.category}) event={self.event_id}>"

@@ -17,9 +17,10 @@ from app.models.waitlist import Waitlist
 from app.models.booking import Booking
 from app.models.wallet import Wallet, WalletTransaction
 from app.models.microsite import Microsite
+from app.models.notification import NotificationLog
 
 __all__ = [
     "Base", "Tenant", "User", "Event", "Venue", "Guest",
     "RoomBlock", "RoomBlockAllotment", "Waitlist", "Booking",
-    "Wallet", "WalletTransaction", "Microsite"
+    "Wallet", "WalletTransaction", "Microsite", "NotificationLog"
 ]
