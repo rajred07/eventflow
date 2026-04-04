@@ -4,6 +4,11 @@ Booking Service — the transactional core of Eventflow.
 Implements the two-tier locking strategy:
 Layer 1: Redis hold (NX EX 900) prevents two guests from entering the payment flow.
 Layer 2: PostgreSQL row lock (FOR UPDATE) commits the reservation.
+
+Phase 5 Addition:
+    After every successful db.commit(), we emit a dashboard event via Redis
+    Pub/Sub. These emissions are fire-and-forget — if Redis Pub/Sub is down,
+    the booking still succeeds. The WebSocket layer is fully decoupled.
 """
 
 import uuid
@@ -16,11 +21,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.waitlists.service import promote_next
 from app.core.wallets.service import credit_on_cancellation, debit_on_booking
+from app.core.websockets.events import (
+    emit_hold_created,
+    emit_booking_confirmed,
+    emit_booking_cancelled,
+)
+from app.core.analytics.thresholds import check_block_thresholds, check_budget_thresholds
 from app.models.booking import Booking
 from app.models.guest import Guest
 from app.models.room_block import RoomBlock
 from app.models.room_block_allotment import RoomBlockAllotment
-from app.models.wallet import Wallet
+from app.models.wallet import Wallet, WalletTransaction
 from app.schemas.booking import BookingHoldRequest
 from app.tasks.email_tasks import send_booking_confirmation_email, send_waitlist_offer_email
 
@@ -128,6 +139,16 @@ async def create_hold(
         await db.commit()
         await db.refresh(booking)
 
+        # ── Phase 5: Dashboard Emission (AFTER commit — fire-and-forget) ──
+        await emit_hold_created(
+            redis=redis,
+            event_id=block.event_id,
+            guest_name=guest.name,
+            room_type=data.room_type,
+            allotment=allotment,
+        )
+        await check_block_thresholds(redis, block.event_id, allotment)
+
         return booking
 
     except Exception as e:
@@ -213,6 +234,37 @@ async def confirm_hold(
     # Fire off background confirmation email
     send_booking_confirmation_email.delay(str(booking.id))
 
+    # ── Phase 5: Dashboard Emission (AFTER commit — fire-and-forget) ──
+    # Fetch the guest name for the emission payload
+    guest_result = await db.execute(select(Guest.name).where(Guest.id == booking.guest_id))
+    guest_name = guest_result.scalar_one_or_none() or "Guest"
+
+    await emit_booking_confirmed(
+        redis=redis,
+        event_id=booking.event_id,
+        guest_name=guest_name,
+        room_type=booking.room_type,
+        allotment=allotment,
+        subsidy_applied=float(booking.subsidy_applied),
+        total_cost=float(booking.total_cost),
+        num_nights=booking.num_nights,
+    )
+    await check_block_thresholds(redis, booking.event_id, allotment)
+
+    # Check budget thresholds if a subsidy was applied
+    if booking.subsidy_applied > 0 and wallet:
+        total_loaded_q = select(func.sum(WalletTransaction.amount)).join(Wallet).where(
+            Wallet.event_id == booking.event_id,
+            WalletTransaction.type == "credit",
+        )
+        total_loaded = (await db.execute(total_loaded_q)).scalar() or 0
+        total_spent_q = select(func.sum(WalletTransaction.amount)).join(Wallet).where(
+            Wallet.event_id == booking.event_id,
+            WalletTransaction.type == "debit",
+        )
+        total_spent = (await db.execute(total_spent_q)).scalar() or 0
+        await check_budget_thresholds(redis, booking.event_id, float(total_loaded), float(total_spent))
+
     return booking
 
 
@@ -278,6 +330,19 @@ async def cancel_booking(
     # Single commit — cancellation + promotion are atomic.
     await db.commit()
     await db.refresh(booking)
+
+    # ── Phase 5: Dashboard Emission (AFTER commit — fire-and-forget) ──
+    guest_result = await db.execute(select(Guest.name).where(Guest.id == booking.guest_id))
+    guest_name = guest_result.scalar_one_or_none() or "Guest"
+
+    await emit_booking_cancelled(
+        redis=redis,
+        event_id=booking.event_id,
+        guest_name=guest_name,
+        room_type=booking.room_type,
+        allotment=allotment,
+        refund_amount=float(booking.subsidy_applied),
+    )
 
     return booking
 

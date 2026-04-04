@@ -136,16 +136,25 @@ def run_full_flow():
     # Create 4 guests: 3 will fight for 2 standard rooms, 1 will fight for 1 deluxe
     guest_names = ["Alice (Employee)", "Bob (Employee)", "Charlie (Employee)", "Diana (VIP)"]
     categories = ["employee", "employee", "employee", "vip"]
-    for name, cat in zip(guest_names, categories):
+    # Each guest has a UNIQUE email (required by DB unique constraint on event_id+email).
+    # RESEND_TEST_OVERRIDE_TO in .env redirects ALL physical delivery to uuook123@gmail.com.
+    # Email subjects are prefixed with [original@email] so you can identify each one in inbox.
+    real_emails = [
+        "uuook123@gmail.com",        # Alice  — invitation + booking confirmation
+        "nnjjk4491@gmail.com",       # Bob    — invitation + booking confirmation
+        "jyotijoshi101970@gmail.com", # Charlie — invitation + waitlist offer (after Alice cancels)
+        "joshi1970jyoti10@gmail.com", # Diana  — invitation only
+    ]
+    for name, cat, email_addr in zip(guest_names, categories, real_emails):
         g_payload = {
             "name": name,
-            "email": f"{name.split()[0].lower()}@e2e.com",
+            "email": email_addr,
             "category": cat
         }
         r = session.post(f"{BASE_URL}/events/{event_id}/guests", json=g_payload)
         assert r.status_code in [201, 200], f"Failed to create guest {name}"
         guests.append(r.json())
-        print(f"✅ Created Guest: {name} | Token: {r.json()['booking_token']}")
+        print(f"✅ Created Guest: {name} | Email: {email_addr} | Token: {r.json()['booking_token']}")
 
     # ============================================================
     # 5.7 Verify Auto-Created Wallets (Phase 2D)
@@ -405,8 +414,11 @@ def run_full_flow():
     # We must construct the Authorization header since this is exactly what the frontend uses
     auth_headers = {"Authorization": f"Bearer {token}"}
     
-    print("\n⏳ Winding down: Waiting 3 seconds for Celery Workers to finish processing Resend emails...")
-    time.sleep(3)
+    # Wait 8 seconds — Celery dispatches tasks async and the waitlist cascade
+    # fires AFTER the cancel API returns, so the chain can take 4-6 seconds:
+    # cancel API → promote_next() → send_waitlist_offer_email.delay() → Celery picks up → DB commit
+    print("\n⏳ Winding down: Waiting 8 seconds for Celery Workers to finish processing all emails...")
+    time.sleep(8)
     
     # We query the endpoint that reads from the NotificationLog table
     r_notif = session.get(f"{BASE_URL}/events/{event_id}/notifications", headers=auth_headers)
@@ -482,8 +494,67 @@ def run_full_flow():
 
     print_step("🎉 E2E TESTS COMPLETED SUCCESSFULLY!")
 
+    # ============================================================
+    # 16. Email Dispatch Report (Full Audit Log)
+    # ============================================================
+    print_step("16. 📬 Email Dispatch Report — Full Audit Log")
+
+    r_all = session.get(f"{BASE_URL}/events/{event_id}/notifications?page_size=50")
+    all_logs = r_all.json().get("items", []) if r_all.status_code == 200 else []
+
+    # Status icons
+    STATUS_ICON = {"success": "✅", "failed": "❌", "pending": "⏳"}
+    TYPE_LABEL = {
+        "invitation":          "📩 Invitation       ",
+        "booking_confirmation": "🎫 Confirmed        ",
+        "waitlist_offer":      "🏨 Waitlist Offer   ",
+        "reminder_7d":         "🔔 Reminder (7 day) ",
+        "reminder_3d":         "🔔 Reminder (3 day) ",
+        "reminder_1d":         "🚨 Reminder (1 day) ",
+    }
+
+    col_w = 40  # recipient column width
+
+    # Header row
+    print(f"\n  {'TYPE':<22} {'RECIPIENT':<{col_w}} {'STATUS':<10} {'RESEND ID':<38} SENT AT")
+    print(f"  {'─'*22} {'─'*col_w} {'─'*10} {'─'*38} {'─'*20}")
+
+    success_count = 0
+    failed_count = 0
+
+    for log in sorted(all_logs, key=lambda x: x.get("created_at", "")):
+        etype  = log.get("type", "unknown")
+        label  = TYPE_LABEL.get(etype, f"📧 {etype:<18}")
+        to     = log.get("recipient_email", "—")
+        status = log.get("status", "—")
+        msg_id = log.get("provider_message_id") or "—"
+        sent   = log.get("sent_at", "—")
+        if sent and sent != "—":
+            sent = sent.replace("T", " ")[:19]  # trim to readable datetime
+        icon   = STATUS_ICON.get(status, "❓")
+
+        print(f"  {label:<22} {to:<{col_w}} {icon} {status:<8} {msg_id:<38} {sent}")
+
+        if status == "success":
+            success_count += 1
+        else:
+            failed_count += 1
+
+    print(f"\n  {'─'*130}")
+    print(f"  TOTAL: {len(all_logs)} emails dispatched  |  ✅ {success_count} delivered  |  ❌ {failed_count} failed\n")
+
+    if failed_count > 0:
+        print("  ⚠️  Some emails failed. Common reasons:")
+        print("     • RESEND_API_KEY not set (check .env)")
+        print("     • Domain not verified on resend.com → only your own email can receive")
+        print("     • Add a verified domain to send to any address\n")
+    else:
+        print("  🚀 All emails delivered successfully via Resend!\n")
+
+
 if __name__ == "__main__":
     try:
         run_full_flow()
     except AssertionError as e:
         print(f"\n❌ TEST FAILED: {e}")
+

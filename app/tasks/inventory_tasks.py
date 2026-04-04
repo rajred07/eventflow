@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 
 from app.core.waitlists.service import promote_next
-from app.db.session import async_session_maker
+from app.db.session import async_session as async_session_maker
 from app.models.booking import Booking
 from app.models.room_block_allotment import RoomBlockAllotment
 from app.models.waitlist import Waitlist
@@ -59,7 +59,6 @@ async def _async_release_expired_holds() -> int:
                     booking.room_block_id, 
                     booking.room_type, 
                     db, 
-                    skip_locked=True
                 )
                 
                 await db.commit()
@@ -103,7 +102,7 @@ async def _async_expire_waitlist_offers() -> int:
                 offer.status = "expired"
                 
                 # Cascade: Someone else might still be waiting
-                await promote_next(offer.room_block_id, offer.room_type, db, skip_locked=True)
+                await promote_next(offer.room_block_id, offer.room_type, db)
                 
                 await db.commit()
                 expired_count += 1

@@ -9,6 +9,7 @@ This is the entry point. It:
 """
 
 from contextlib import asynccontextmanager
+import asyncio
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,8 +25,11 @@ from app.api.v1.wallets import router as wallets_router
 from app.api.v1.microsites import router as microsites_router
 from app.api.v1.import_export import router as import_export_router
 from app.api.v1.notifications import router as notifications_router
+from app.api.v1.websockets import router as ws_router
+from app.api.v1.analytics import router as analytics_router
 from app.config import settings
 from app.db.session import engine
+from app.core.websockets.pubsub import start_pubsub_listener
 
 
 @asynccontextmanager
@@ -45,9 +49,18 @@ async def lifespan(app: FastAPI):
     print(f"✅ {settings.APP_NAME} v{settings.APP_VERSION} started")
     print(f"📄 API Docs: http://localhost:8000/docs")
 
+    # Phase 5: Start Redis Pub/Sub listener for real-time dashboard
+    pubsub_task = asyncio.create_task(start_pubsub_listener())
+    print(f"📡 Redis Pub/Sub listener started for live dashboard")
+
     yield  # App runs here
 
-    # Shutdown — clean up connection pool
+    # Shutdown — cancel Pub/Sub listener and clean up
+    pubsub_task.cancel()
+    try:
+        await pubsub_task
+    except asyncio.CancelledError:
+        pass
     await engine.dispose()
     print("👋 Shutting down gracefully")
 
@@ -94,6 +107,10 @@ app.include_router(notifications_router, prefix="/api/v1")
 app.include_router(public_booking_router, prefix="/api/v1")
 app.include_router(event_booking_router, prefix="/api/v1")
 app.include_router(booking_router, prefix="/api/v1")
+app.include_router(analytics_router, prefix="/api/v1")
+
+# WebSocket router — no /api/v1 prefix (WS URLs are separate from REST)
+app.include_router(ws_router)
 
 
 # Health check — useful for Docker health checks and monitoring

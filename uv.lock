@@ -464,6 +464,7 @@ dependencies = [
     { name = "redis" },
     { name = "resend" },
     { name = "sqlalchemy", extra = ["asyncio"] },
+    { name = "websockets" },
 ]
 
 [package.dev-dependencies]
@@ -490,6 +491,7 @@ requires-dist = [
     { name = "redis", specifier = ">=7.4.0" },
     { name = "resend", specifier = ">=2.27.0" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.48" },
+    { name = "websockets", specifier = ">=16.0" },
 ]
 
 [package.metadata.requires-dev]
