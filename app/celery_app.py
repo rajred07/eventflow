@@ -43,4 +43,9 @@ app.conf.beat_schedule = {
         "task": "app.tasks.cron_tasks.booking_reminder_sequence",
         "schedule": crontab(hour=9, minute=0),
     },
+    # 4. Event Auto-Completion (Daily at 8 AM)
+    "event-auto-completion": {
+        "task": "app.tasks.cron_tasks.event_auto_completion",
+        "schedule": crontab(hour=8, minute=0),
+    },
 }

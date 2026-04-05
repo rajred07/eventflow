@@ -510,3 +510,309 @@ def send_booking_reminder_email(self, guest_id: str, days_left: int):
         raise self.retry(exc=exc, countdown=60)
     finally:
         db.close()
+
+
+# ─── Task 5: Manual Custom Reminder (Phase 6 — Reminder Blast) ────────────────
+
+@app.task(bind=True, max_retries=3)
+def send_custom_reminder_email(self, guest_id: str, event_id: str, custom_message: str | None = None):
+    """
+    Send a one-off custom reminder to a specific guest.
+    Triggered by the POST /events/{id}/reminders/blast endpoint.
+    The planner picks categories + writes a custom message.
+    """
+    db = SyncSessionLocal()
+    try:
+        guest = db.execute(
+            select(Guest).where(Guest.id == uuid.UUID(guest_id))
+        ).scalar_one()
+
+        event = db.execute(
+            select(Event).where(Event.id == uuid.UUID(event_id))
+        ).scalar_one()
+
+        microsite = db.execute(
+            select(Microsite).where(Microsite.event_id == event.id)
+        ).scalar_one_or_none()
+
+        slug = microsite.slug if microsite else str(event.id)
+        booking_link = f"https://app.eventflow.com/events/{slug}?token={guest.booking_token}"
+
+        message_html = ""
+        if custom_message:
+            message_html = f"""
+            <div style="background: #fef3c7; border-left: 4px solid #f59e0b; padding: 16px; margin: 20px 0; border-radius: 0 8px 8px 0;">
+                <p style="margin: 0; color: #92400e; font-style: italic;">"{custom_message}"</p>
+                <p style="margin: 8px 0 0 0; color: #b45309; font-size: 13px;">— Your Event Planner</p>
+            </div>
+            """
+
+        html = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1a1a1a;">
+            <div style="background: linear-gradient(135deg, #8b5cf6, #6d28d9); padding: 32px; border-radius: 12px 12px 0 0;">
+                <h1 style="color: white; margin: 0; font-size: 22px;">Action Required</h1>
+                <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0 0;">{event.name}</p>
+            </div>
+            <div style="background: #ffffff; padding: 32px; border-radius: 0 0 12px 12px; border: 1px solid #e5e7eb;">
+                <p style="font-size: 16px;">Hi <strong>{guest.name}</strong>,</p>
+                <p style="color: #4b5563; line-height: 1.6;">
+                    Your event planner would like to remind you to complete your room booking
+                    for <strong>{event.name}</strong> ({event.start_date} – {event.end_date}).
+                </p>
+
+                {message_html}
+
+                <div style="text-align: center; margin: 32px 0;">
+                    <a href="{booking_link}"
+                       style="background: #8b5cf6; color: white; padding: 14px 32px;
+                              border-radius: 8px; text-decoration: none; font-weight: 600;
+                              font-size: 16px; display: inline-block;">
+                        Complete My Booking →
+                    </a>
+                </div>
+
+                <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;" />
+                <p style="color: #9ca3af; font-size: 12px; text-align: center;">
+                    Eventflow · Group Travel Infrastructure
+                </p>
+            </div>
+        </body>
+        </html>
+        """
+
+        _send_email_or_mock(
+            to=guest.email,
+            subject=f"Reminder: Complete Your Booking — {event.name}",
+            html=html,
+            notification_type="manual_blast",
+            event_id=event.id,
+            guest_id=guest.id,
+            db=db,
+        )
+
+    except Exception as exc:
+        logger.error(f"send_custom_reminder_email failed for guest {guest_id}: {exc}")
+        db.rollback()
+        raise self.retry(exc=exc, countdown=60)
+    finally:
+        db.close()
+
+
+# ─── Task 6: Event Completion Summary (Phase 6 — Auto-Completion) ─────────────
+
+@app.task(bind=True, max_retries=3)
+def send_event_completion_email(self, event_id: str, summary_data: dict):
+    """
+    Send a completion summary email to the planner/admin.
+    Triggered by the event_auto_completion cron task when hold_deadline passes.
+
+    summary_data contains: confirmed_rooms, released_rooms, room_breakdown, event_name, etc.
+    """
+    from app.models.user import User
+    from app.models.tenant import Tenant
+
+    db = SyncSessionLocal()
+    try:
+        event = db.execute(
+            select(Event).where(Event.id == uuid.UUID(event_id))
+        ).scalar_one()
+
+        # Find the admin users for this tenant to email
+        admin_result = db.execute(
+            select(User).where(
+                User.tenant_id == event.tenant_id,
+                User.role.in_(["admin", "planner"]),
+                User.is_active == True,
+            )
+        )
+        admins = admin_result.scalars().all()
+
+        if not admins:
+            logger.warning(f"No admin/planner found for tenant of event {event_id}")
+            return
+
+        confirmed = summary_data.get("confirmed_rooms", 0)
+        released = summary_data.get("released_rooms", 0)
+        breakdown = summary_data.get("room_breakdown", [])
+        venue_name = summary_data.get("venue_name", "the venue")
+
+        breakdown_html = ""
+        for item in breakdown:
+            breakdown_html += f"""
+            <tr>
+                <td style="padding: 8px 0; color: #6b7280;">{item['room_type'].title()}</td>
+                <td style="padding: 8px 0; text-align: right;">{item['booked']}</td>
+                <td style="padding: 8px 0; text-align: right; color: #ef4444;">{item['released']}</td>
+            </tr>
+            """
+
+        html = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1a1a1a;">
+            <div style="background: linear-gradient(135deg, #059669, #10b981); padding: 32px; border-radius: 12px 12px 0 0;">
+                <h1 style="color: white; margin: 0; font-size: 24px;">Event Complete ✅</h1>
+                <p style="color: rgba(255,255,255,0.9); margin: 8px 0 0 0;">{event.name}</p>
+            </div>
+            <div style="background: #ffffff; padding: 32px; border-radius: 0 0 12px 12px; border: 1px solid #e5e7eb;">
+                <p style="font-size: 16px;">The booking deadline for <strong>{event.name}</strong> has passed.</p>
+
+                <div style="background: #f0fdf4; border-radius: 8px; padding: 20px; margin: 20px 0; text-align: center;">
+                    <div style="font-size: 48px; font-weight: 700; color: #059669;">{confirmed}</div>
+                    <div style="color: #6b7280; font-size: 14px;">Rooms Confirmed</div>
+                </div>
+
+                <div style="background: #f9fafb; border-radius: 8px; padding: 16px; margin: 16px 0;">
+                    <table style="width: 100%; border-collapse: collapse;">
+                        <tr style="border-bottom: 1px solid #e5e7eb;">
+                            <th style="padding: 8px 0; text-align: left; color: #374151; font-size: 13px;">Room Type</th>
+                            <th style="padding: 8px 0; text-align: right; color: #374151; font-size: 13px;">Confirmed</th>
+                            <th style="padding: 8px 0; text-align: right; color: #374151; font-size: 13px;">Released</th>
+                        </tr>
+                        {breakdown_html}
+                    </table>
+                </div>
+
+                <p style="color: #4b5563; line-height: 1.6;">
+                    <strong>{released} rooms</strong> have been released back to <strong>{venue_name}</strong>.
+                    The rooming list CSV is attached to a separate email or can be downloaded from your dashboard.
+                </p>
+
+                <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;" />
+                <p style="color: #9ca3af; font-size: 12px; text-align: center;">
+                    Eventflow · Group Travel Infrastructure
+                </p>
+            </div>
+        </body>
+        </html>
+        """
+
+        for admin in admins:
+            if admin.email:
+                _send_email_or_mock(
+                    to=admin.email,
+                    subject=f"Event Complete — {event.name} | {confirmed} rooms confirmed, {released} released",
+                    html=html,
+                    notification_type="event_completion",
+                    event_id=event.id,
+                    guest_id=None,
+                    db=db,
+                )
+
+    except Exception as exc:
+        logger.error(f"send_event_completion_email failed for event {event_id}: {exc}")
+        db.rollback()
+        raise self.retry(exc=exc, countdown=60)
+    finally:
+        db.close()
+
+
+# ─── Task 7: Hotel Handoff Summary (Phase 6 — Auto-Completion) ────────────────
+
+@app.task(bind=True, max_retries=3)
+def send_hotel_handoff_email(self, event_id: str, venue_email: str, summary_data: dict):
+    """
+    Send a summary + rooming count to the hotel venue contact.
+    Only fires if the venue has a contact_email set.
+    """
+    db = SyncSessionLocal()
+    try:
+        event = db.execute(
+            select(Event).where(Event.id == uuid.UUID(event_id))
+        ).scalar_one()
+
+        confirmed = summary_data.get("confirmed_rooms", 0)
+        released = summary_data.get("released_rooms", 0)
+        breakdown = summary_data.get("room_breakdown", [])
+        venue_name = summary_data.get("venue_name", "Hotel")
+        check_in = summary_data.get("check_in_date", "TBD")
+        check_out = summary_data.get("check_out_date", "TBD")
+        planner_email = summary_data.get("planner_email", "")
+
+        breakdown_html = ""
+        for item in breakdown:
+            breakdown_html += f"""
+            <tr>
+                <td style="padding: 8px 12px; border-bottom: 1px solid #e5e7eb;">{item['room_type'].title()}</td>
+                <td style="padding: 8px 12px; border-bottom: 1px solid #e5e7eb; text-align: right;">{item['booked']}</td>
+                <td style="padding: 8px 12px; border-bottom: 1px solid #e5e7eb; text-align: right;">{item['released']}</td>
+            </tr>
+            """
+
+        html = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1a1a1a;">
+            <div style="background: #1e293b; padding: 32px; border-radius: 12px 12px 0 0;">
+                <h1 style="color: white; margin: 0; font-size: 22px;">Final Rooming List 🏨</h1>
+                <p style="color: rgba(255,255,255,0.7); margin: 8px 0 0 0;">{event.name}</p>
+            </div>
+            <div style="background: #ffffff; padding: 32px; border-radius: 0 0 12px 12px; border: 1px solid #e5e7eb;">
+                <p style="font-size: 16px;">Dear <strong>{venue_name}</strong> Team,</p>
+                <p style="color: #4b5563; line-height: 1.6;">
+                    The booking deadline for <strong>{event.name}</strong> has passed.
+                    Below is the final room reservation summary.
+                </p>
+
+                <div style="background: #f9fafb; border-radius: 8px; padding: 16px; margin: 20px 0;">
+                    <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+                        <tr>
+                            <td style="padding: 6px 0; color: #6b7280;">Check-In</td>
+                            <td style="padding: 6px 0; text-align: right; font-weight: 600;">{check_in}</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 6px 0; color: #6b7280;">Check-Out</td>
+                            <td style="padding: 6px 0; text-align: right; font-weight: 600;">{check_out}</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 6px 0; color: #6b7280;">Total Confirmed</td>
+                            <td style="padding: 6px 0; text-align: right; font-weight: 700; color: #059669;">{confirmed} rooms</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 6px 0; color: #6b7280;">Released Back to You</td>
+                            <td style="padding: 6px 0; text-align: right; font-weight: 600; color: #ef4444;">{released} rooms</td>
+                        </tr>
+                    </table>
+                </div>
+
+                <div style="margin: 20px 0;">
+                    <h3 style="font-size: 14px; color: #374151; margin: 0 0 8px;">Room Breakdown</h3>
+                    <table style="width: 100%; border-collapse: collapse; font-size: 14px;">
+                        <tr style="background: #f3f4f6;">
+                            <th style="padding: 8px 12px; text-align: left;">Type</th>
+                            <th style="padding: 8px 12px; text-align: right;">Confirmed</th>
+                            <th style="padding: 8px 12px; text-align: right;">Released</th>
+                        </tr>
+                        {breakdown_html}
+                    </table>
+                </div>
+
+                <p style="color: #4b5563; font-size: 14px;">
+                    Planner contact: <a href="mailto:{planner_email}">{planner_email}</a>
+                </p>
+
+                <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;" />
+                <p style="color: #9ca3af; font-size: 12px; text-align: center;">
+                    Sent via Eventflow · Group Travel Infrastructure
+                </p>
+            </div>
+        </body>
+        </html>
+        """
+
+        _send_email_or_mock(
+            to=venue_email,
+            subject=f"Final Rooming List — {event.name} | {confirmed} rooms confirmed",
+            html=html,
+            notification_type="hotel_handoff",
+            event_id=event.id,
+            guest_id=None,
+            db=db,
+        )
+
+    except Exception as exc:
+        logger.error(f"send_hotel_handoff_email failed for event {event_id}: {exc}")
+        db.rollback()
+        raise self.retry(exc=exc, countdown=60)
+    finally:
+        db.close()
+

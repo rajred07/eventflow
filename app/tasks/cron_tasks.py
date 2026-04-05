@@ -4,9 +4,10 @@ Eventflow Cron Tasks — Celery Beat periodic jobs.
 These tasks run on a schedule (configured in celery_app.py) and perform
 automated maintenance that keeps the system consistent:
 
-    1. hold_expiry_cleanup     — Every 2 min: releases ghost held-rooms
-    2. waitlist_offer_expiry   — Every hour: expires stale waitlist offers
-    3. booking_reminder_sequence — Daily 9AM: sends reminder emails
+    1. hold_expiry_cleanup        — Every 2 min: releases ghost held-rooms
+    2. waitlist_offer_expiry      — Every hour: expires stale waitlist offers
+    3. booking_reminder_sequence  — Daily 9AM: sends reminder emails
+    4. event_auto_completion      — Daily 8AM: completes events past hold_deadline
 
 Architecture note:
     Celery Beat fires these tasks via Redis → Celery worker picks them up.
@@ -336,3 +337,196 @@ def booking_reminder_sequence():
     queued = asyncio.run(_async_booking_reminder_sequence())
     logger.info(f"━━━ booking_reminder_sequence DONE: {queued} reminder emails queued ━━━")
     return {"queued": queued}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CRON TASK 4: Event Auto-Completion
+# Schedule: Daily at 8 AM UTC
+#
+# The Real-World Problem:
+#     When the booking deadline passes, nothing happens. The planner has to
+#     remember to download the rooming list and send it to the hotel manually.
+#     If they forget, the hotel has no confirmed numbers 2 days before check-in.
+#     This happens constantly in real group travel management.
+#
+# What This Task Does:
+#     1. Find events where ALL room blocks have hold_deadline in the past
+#     2. For each: release unclaimed rooms back to hotel inventory
+#     3. Mark room blocks as "released", event as "completed"
+#     4. Email planner with final summary (X confirmed, Y released)
+#     5. Email hotel venue contact with rooming list summary
+#     6. Emit WebSocket event_completed so live dashboards update
+# ══════════════════════════════════════════════════════════════════════════════
+
+async def _async_event_auto_completion() -> int:
+    """
+    Scans for active events whose room block hold_deadlines have ALL passed.
+    For each matching event, performs the full completion flow.
+    """
+    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+    from sqlalchemy.orm import selectinload
+    from redis.asyncio import Redis as AsyncRedis
+    from app.models.event import Event
+    from app.models.room_block import RoomBlock
+    from app.models.room_block_allotment import RoomBlockAllotment
+    from app.models.venue import Venue
+    from app.models.user import User
+    from app.core.websockets.events import _safe_publish
+
+    async_engine = create_async_engine(settings.DATABASE_URL, echo=False)
+    AsyncSessionLocal = async_sessionmaker(async_engine, class_=AsyncSession, expire_on_commit=False)
+
+    redis = AsyncRedis.from_url(settings.REDIS_URL, decode_responses=True)
+
+    completed_count = 0
+    today = date.today()
+
+    async with AsyncSessionLocal() as db:
+        # Find all active events
+        events_result = await db.execute(
+            select(Event).where(Event.status == "active")
+        )
+        active_events = events_result.scalars().all()
+
+        logger.info(f"event_auto_completion: scanning {len(active_events)} active events")
+
+        for event in active_events:
+            try:
+                # Load all room blocks for this event
+                blocks_result = await db.execute(
+                    select(RoomBlock)
+                    .options(selectinload(RoomBlock.allotments))
+                    .where(
+                        RoomBlock.event_id == event.id,
+                        RoomBlock.status == "confirmed",
+                    )
+                )
+                blocks = blocks_result.scalars().all()
+
+                if not blocks:
+                    continue
+
+                # Check: ALL blocks must have hold_deadline in the past
+                all_past = all(block.hold_deadline < today for block in blocks)
+                if not all_past:
+                    continue
+
+                logger.info(f"  🏁 Event '{event.name}' — all deadlines passed, completing...")
+
+                total_confirmed = 0
+                total_released = 0
+                room_breakdown = []
+
+                for block in blocks:
+                    # Load venue for hotel contact email
+                    venue_result = await db.execute(
+                        select(Venue).where(Venue.id == block.venue_id)
+                    )
+                    venue = venue_result.scalar_one_or_none()
+
+                    for allotment in block.allotments:
+                        # Lock allotment for update
+                        locked_result = await db.execute(
+                            select(RoomBlockAllotment)
+                            .where(RoomBlockAllotment.id == allotment.id)
+                            .with_for_update()
+                        )
+                        locked_allotment = locked_result.scalar_one()
+
+                        booked = locked_allotment.booked_rooms
+                        released = locked_allotment.total_rooms - locked_allotment.booked_rooms
+
+                        # Release any remaining held rooms (shouldn't be any after cron 1, but safety)
+                        locked_allotment.held_rooms = 0
+                        locked_allotment.version += 1
+
+                        total_confirmed += booked
+                        total_released += released
+
+                        room_breakdown.append({
+                            "room_type": locked_allotment.room_type,
+                            "booked": booked,
+                            "released": released,
+                            "total": locked_allotment.total_rooms,
+                        })
+
+                    # Mark block as released
+                    block.status = "released"
+
+                    # Build summary data for emails
+                    venue_name = venue.name if venue else "the venue"
+                    venue_email = venue.contact_email if venue else None
+
+                    summary_data = {
+                        "confirmed_rooms": total_confirmed,
+                        "released_rooms": total_released,
+                        "room_breakdown": room_breakdown,
+                        "venue_name": venue_name,
+                        "check_in_date": str(block.check_in_date),
+                        "check_out_date": str(block.check_out_date),
+                    }
+
+                # Mark event as completed
+                event.status = "completed"
+
+                await db.commit()
+                completed_count += 1
+
+                logger.info(
+                    f"  ✅ Event '{event.name}' completed: "
+                    f"{total_confirmed} confirmed, {total_released} released"
+                )
+
+                # ── Post-commit actions (fire-and-forget) ──
+
+                # Find planner email for hotel handoff
+                planner_result = await db.execute(
+                    select(User).where(
+                        User.tenant_id == event.tenant_id,
+                        User.role.in_(["admin", "planner"]),
+                        User.is_active == True,
+                    )
+                )
+                planner = planner_result.scalars().first()
+                planner_email = planner.email if planner else ""
+
+                summary_data["planner_email"] = planner_email
+
+                # Email planner
+                from app.tasks.email_tasks import send_event_completion_email
+                send_event_completion_email.delay(str(event.id), summary_data)
+
+                # Email hotel (only if venue has a contact_email)
+                if venue_email:
+                    from app.tasks.email_tasks import send_hotel_handoff_email
+                    send_hotel_handoff_email.delay(str(event.id), venue_email, summary_data)
+
+                # WebSocket: emit event_completed
+                await _safe_publish(redis, event.id, {
+                    "type": "event_completed",
+                    "event_name": event.name,
+                    "confirmed_rooms": total_confirmed,
+                    "released_rooms": total_released,
+                    "room_breakdown": room_breakdown,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                })
+
+            except Exception as e:
+                await db.rollback()
+                logger.error(f"  ❌ Failed to complete event '{event.name}': {e}")
+
+    await redis.aclose()
+    await async_engine.dispose()
+    return completed_count
+
+
+@app.task
+def event_auto_completion():
+    """
+    Celery Beat entry point for event auto-completion.
+    Runs daily at 8 AM UTC via the beat_schedule in celery_app.py.
+    """
+    logger.info("━━━ event_auto_completion START ━━━")
+    completed = asyncio.run(_async_event_auto_completion())
+    logger.info(f"━━━ event_auto_completion DONE: {completed} events completed ━━━")
+    return {"completed": completed}
