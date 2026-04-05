@@ -11,7 +11,7 @@ app = Celery(
     "eventflow",
     broker=REDIS_URL,
     backend=REDIS_URL,
-    include=["app.tasks.email_tasks", "app.tasks.cron_tasks", "app.tasks.inventory_tasks"]
+    include=["app.tasks.email_tasks", "app.tasks.cron_tasks", "app.tasks.inventory_tasks", "app.tasks.whatsapp_tasks"]
 )
 
 # Celery settings

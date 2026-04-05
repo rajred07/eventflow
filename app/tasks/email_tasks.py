@@ -177,6 +177,11 @@ def send_guest_invitation_email(self, guest_id: str):
             db=db,
         )
 
+        # Phase 8: Dual-dispatch WhatsApp (if guest has phone)
+        if guest.phone:
+            from app.tasks.whatsapp_tasks import send_whatsapp_invitation
+            send_whatsapp_invitation.delay(str(guest.id))
+
     except Exception as exc:
         logger.error(f"send_guest_invitation_email failed for guest {guest_id}: {exc}")
         db.rollback()
@@ -294,6 +299,11 @@ def send_booking_confirmation_email(self, booking_id: str):
             db=db,
         )
 
+        # Phase 8: Dual-dispatch WhatsApp (if guest has phone)
+        if guest.phone:
+            from app.tasks.whatsapp_tasks import send_whatsapp_booking_confirmation
+            send_whatsapp_booking_confirmation.delay(str(booking.id))
+
     except Exception as exc:
         logger.error(f"send_booking_confirmation_email failed for booking {booking_id}: {exc}")
         db.rollback()
@@ -389,6 +399,11 @@ def send_waitlist_offer_email(self, waitlist_id: str):
             guest_id=w_entry.guest_id,
             db=db,
         )
+
+        # Phase 8: Dual-dispatch WhatsApp (if guest has phone)
+        if guest.phone:
+            from app.tasks.whatsapp_tasks import send_whatsapp_waitlist_offer
+            send_whatsapp_waitlist_offer.delay(str(w_entry.id))
 
     except Exception as exc:
         logger.error(f"send_waitlist_offer_email failed for waitlist {waitlist_id}: {exc}")
@@ -590,6 +605,11 @@ def send_custom_reminder_email(self, guest_id: str, event_id: str, custom_messag
             guest_id=guest.id,
             db=db,
         )
+
+        # Phase 8: Dual-dispatch WhatsApp (if guest has phone)
+        if guest.phone:
+            from app.tasks.whatsapp_tasks import send_whatsapp_reminder
+            send_whatsapp_reminder.delay(str(guest.id), str(event.id), custom_message)
 
     except Exception as exc:
         logger.error(f"send_custom_reminder_email failed for guest {guest_id}: {exc}")

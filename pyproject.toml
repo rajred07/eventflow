@@ -19,6 +19,7 @@ dependencies = [
     "redis>=7.4.0",
     "resend>=2.27.0",
     "sqlalchemy[asyncio]>=2.0.48",
+    "twilio>=9.10.4",
     "websockets>=16.0",
 ]
 

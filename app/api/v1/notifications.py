@@ -44,6 +44,7 @@ async def get_notification_logs(
             "id": str(log.id),
             "guest_id": str(log.guest_id) if log.guest_id else None,
             "type": log.type,
+            "channel": log.channel,
             "status": log.status,
             "recipient_email": log.recipient_email,
             "provider_message_id": log.provider_message_id,

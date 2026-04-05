@@ -33,6 +33,14 @@ class Settings(BaseSettings):
     # Set to empty string "" to disable and use real recipient emails.
     RESEND_TEST_OVERRIDE_TO: str = ""
 
+    # WhatsApp (Twilio) — Phase 8
+    # If TWILIO_ACCOUNT_SID is None → mock mode (logs messages, doesn't send)
+    TWILIO_ACCOUNT_SID: str | None = None
+    TWILIO_AUTH_TOKEN: str | None = None
+    TWILIO_WHATSAPP_FROM: str = "whatsapp:+14155238886"
+    # TEST MODE: All WA messages redirect to this number (same pattern as RESEND_TEST_OVERRIDE_TO)
+    TWILIO_TEST_OVERRIDE_TO: str = ""
+
     # App
     APP_NAME: str = "Eventflow"
     APP_VERSION: str = "0.1.0"
