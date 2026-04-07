@@ -18,17 +18,61 @@ from app.core.waitlists.service import (
     get_waitlists_for_event,
     update_waitlist_status,
 )
+from sqlalchemy import select
 from app.db.session import get_db
 from app.models.user import User
+from app.models.guest import Guest
 from app.schemas.waitlist import (
     WaitlistActionRequest,
     WaitlistCreate,
+    PublicWaitlistCreate,
     WaitlistListResponse,
     WaitlistResponse,
 )
 
 event_waitlist_router = APIRouter(prefix="/events/{event_id}/waitlist", tags=["Waitlist"])
 waitlist_router = APIRouter(prefix="/waitlists", tags=["Waitlist"])
+public_waitlist_router = APIRouter(prefix="/public/waitlists", tags=["Public Waitlist"])
+
+@public_waitlist_router.post(
+    "",
+    response_model=WaitlistResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Guest auto-adds to waitlist via magic link",
+)
+async def public_add_waitlist_route(
+    data: PublicWaitlistCreate,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Public route for guests to join a waitlist using their booking token.
+    Validates token and maps the action to the correct guest and event context.
+    """
+    result = await db.execute(
+        select(Guest).where(Guest.booking_token == data.guest_token, Guest.is_active == True)
+    )
+    guest = result.scalar_one_or_none()
+    if not guest:
+        raise HTTPException(status_code=401, detail="Invalid booking token")
+
+    try:
+        waitlist_obj = await add_to_waitlist(
+            data=WaitlistCreate(
+                guest_id=guest.id, 
+                room_block_id=data.room_block_id, 
+                room_type=data.room_type
+            ),
+            tenant_id=guest.tenant_id,
+            event_id=guest.event_id,
+            db=db,
+        )
+        waitlist_dict = await get_waitlist_by_id(
+            waitlist_obj.id, guest.tenant_id, db
+        )
+        return waitlist_dict
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 
 
 @event_waitlist_router.post(

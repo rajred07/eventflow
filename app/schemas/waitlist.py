@@ -30,6 +30,17 @@ class WaitlistCreate(BaseModel):
     def format_room_type(cls, v: str) -> str:
         return v.strip().lower()
 
+class PublicWaitlistCreate(BaseModel):
+    """Payload for guests joining waitlist via magic link token."""
+    guest_token: uuid.UUID
+    room_block_id: uuid.UUID
+    room_type: str = Field(..., max_length=100, examples=["standard"])
+
+    @field_validator("room_type")
+    @classmethod
+    def format_room_type(cls, v: str) -> str:
+        return v.strip().lower()
+
 
 class WaitlistActionRequest(BaseModel):
     """Payload when a planner manually changes waitlist status."""
