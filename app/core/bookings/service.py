@@ -374,3 +374,91 @@ async def get_bookings_for_event(
     result = await db.execute(query)
     
     return list(result.scalars().all()), total
+
+
+# ---------------------------------------------------------------------------
+# Public: Fetch guest's own booking via magic-link token (no JWT required)
+# ---------------------------------------------------------------------------
+
+
+async def get_guest_booking_by_token(
+    guest_token: uuid.UUID,
+    db: AsyncSession,
+) -> Booking | None:
+    """
+    Returns the guest's most recent active booking (HELD or CONFIRMED)
+    using only their booking_token. Used by the public microsite to detect
+    if the guest already has / had a booking and show the right UI state.
+    """
+    # 1. Validate the guest token
+    guest_result = await db.execute(
+        select(Guest).where(
+            Guest.booking_token == guest_token,
+            Guest.is_active == True,
+        )
+    )
+    guest = guest_result.scalar_one_or_none()
+    if not guest:
+        return None
+
+    # 2. Find their most recent active booking for this event
+    booking_result = await db.execute(
+        select(Booking)
+        .where(
+            Booking.guest_id == guest.id,
+            Booking.event_id == guest.event_id,
+            Booking.status.in_(["HELD", "CONFIRMED"]),
+        )
+        .order_by(Booking.created_at.desc())
+        .limit(1)
+    )
+    return booking_result.scalar_one_or_none()
+
+
+# ---------------------------------------------------------------------------
+# Public: Cancel guest's own booking via magic-link token (no JWT required)
+# ---------------------------------------------------------------------------
+
+
+async def cancel_booking_by_token(
+    guest_token: uuid.UUID,
+    db: AsyncSession,
+    redis: Redis,
+) -> Booking:
+    """
+    Allows a guest to cancel their own HELD or CONFIRMED booking using only
+    their magic-link token. Triggers full cascade:
+    - Returns room to inventory
+    - Refunds corporate wallet subsidy (if any was applied)
+    - Promotes the next person on the waitlist
+    No planner auth required.
+    """
+    # 1. Find the guest
+    guest_result = await db.execute(
+        select(Guest).where(
+            Guest.booking_token == guest_token,
+            Guest.is_active == True,
+        )
+    )
+    guest = guest_result.scalar_one_or_none()
+    if not guest:
+        raise ValueError("Invalid or inactive guest token.")
+
+    # 2. Find their active booking
+    booking_result = await db.execute(
+        select(Booking)
+        .where(
+            Booking.guest_id == guest.id,
+            Booking.event_id == guest.event_id,
+            Booking.status.in_(["HELD", "CONFIRMED"]),
+        )
+        .order_by(Booking.created_at.desc())
+        .limit(1)
+    )
+    booking = booking_result.scalar_one_or_none()
+    if not booking:
+        raise ValueError("No active booking found to cancel.")
+
+    # 3. Delegate to existing cancel_booking (handles inventory + wallet + waitlist cascade)
+    return await cancel_booking(booking_id=booking.id, db=db, redis=redis)
+

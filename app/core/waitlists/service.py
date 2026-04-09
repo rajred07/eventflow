@@ -240,11 +240,15 @@ async def promote_next(
         next_in_line.status = "offered"
         next_in_line.offer_expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
         
-        # Trigger Celery task to email the guest
-        from app.tasks.email_tasks import send_waitlist_offer_email
-        send_waitlist_offer_email.delay(str(next_in_line.id))
+        # Trigger Celery task to email the guest (non-fatal if Celery is not running)
+        try:
+            from app.tasks.email_tasks import send_waitlist_offer_email
+            send_waitlist_offer_email.delay(str(next_in_line.id))
+        except Exception:
+            pass  # Celery not running in dev — booking still cancels correctly
     
     return next_in_line
+
 
 
 async def update_waitlist_status(

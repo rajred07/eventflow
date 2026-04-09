@@ -16,9 +16,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.auth.rbac import require_role
 from app.core.bookings.service import (
     cancel_booking,
+    cancel_booking_by_token,
     confirm_hold,
     create_hold,
     get_bookings_for_event,
+    get_guest_booking_by_token,
 )
 from app.core.redis import get_redis
 from app.db.session import get_db
@@ -29,6 +31,7 @@ from app.schemas.booking import (
     BookingListResponse,
     BookingResponse,
 )
+
 
 # Public route — guests booking from the microsite
 public_booking_router = APIRouter(prefix="/public", tags=["Public Bookings"])
@@ -61,6 +64,45 @@ async def hold_room_route(
         raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@public_booking_router.get(
+    "/my-booking",
+    response_model=BookingResponse | None,
+    summary="Get current guest booking via magic-link token (Zero Auth)",
+)
+async def get_my_booking_route(
+    token: uuid.UUID = Query(..., description="Guest Booking Token"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Returns the guest's most recent HELD or CONFIRMED booking using their
+    magic-link token. Returns null (204) if no active booking exists.
+    """
+    booking = await get_guest_booking_by_token(guest_token=token, db=db)
+    return booking
+
+
+@public_booking_router.post(
+    "/cancel",
+    response_model=BookingResponse,
+    summary="Guest cancels their own booking via magic-link token (Zero Auth)",
+)
+async def public_cancel_booking_route(
+    token: uuid.UUID = Query(..., description="Guest Booking Token"),
+    db: AsyncSession = Depends(get_db),
+    redis: Redis = Depends(get_redis),
+):
+    """
+    Allows a guest to cancel their own HELD or CONFIRMED booking using only
+    their magic-link token. No planner JWT required.
+    Triggers full cascade: inventory returns, wallet refund, waitlist promotion.
+    """
+    try:
+        booking = await cancel_booking_by_token(guest_token=token, db=db, redis=redis)
+        return booking
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @public_booking_router.post(

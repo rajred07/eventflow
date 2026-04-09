@@ -1,0 +1,24 @@
+Sl No,Employee Full Name,Work Email ID,Contact Number,Designation,Department,Grade Level,Dietary Preference,T-Shirt Size,Arrival Date,Mode of Travel
+1,Rajesh Kumar,rajesh.k@acmecorp.in,+91 98765 43210,Software Engineer,Engineering,L3 - Employee,Vegetarian,L,2026-03-14,Flight
+2,Priya Sharma,priya.s@acmecorp.in,+91 91234 56789,Senior Engineer,Engineering,L4 - Employee,Non-Vegetarian,M,2026-03-14,Flight
+3,Vikram Nair,vikram.n@acmecorp.in,+91 80987 65432,Team Lead,Engineering,L5 - Employee,Vegan,XL,2026-03-14,Train
+4,Anita Desai,anita.d@acmecorp.in,+91 77665 54433,Product Manager,Product,L5 - Employee,Jain,S,2026-03-14,Flight
+5,Suresh Menon,suresh.m@acmecorp.in,+91 99887 76655,Data Analyst,Analytics,L3 - Employee,Non-Vegetarian,L,2026-03-14,Self Drive
+6,Kavitha Rajan,kavitha.r@acmecorp.in,+91 88776 65544,UX Designer,Design,L4 - Employee,Vegetarian,M,2026-03-14,Flight
+7,Arjun Pillai,arjun.p@acmecorp.in,+91 79988 77766,DevOps Engineer,Infrastructure,L3 - Employee,Non-Vegetarian,XL,2026-03-15,Flight
+8,Meena Iyer,meena.i@acmecorp.in,+91 98765 11223,QA Engineer,Quality,L3 - Employee,Vegetarian,S,2026-03-15,Train
+9,Rohit Gupta,rohit.g@acmecorp.in,+91 77889 00112,Business Analyst,Strategy,L4 - Employee,Non-Vegetarian,M,2026-03-15,Flight
+10,Deepika Nambiar,deepika.n@acmecorp.in,+91 66778 99001,HR Manager,Human Resources,L4 - Employee,Vegetarian,L,2026-03-15,Flight
+11,Sanjay Kapoor,sanjay.k@acmecorp.in,+91 55667 88990,VP Engineering,Engineering,L8 - VIP,Non-Vegetarian,XL,2026-03-14,Flight
+12,Nandita Roy,nandita.r@acmecorp.in,+91 44556 77889,Chief Product Officer,Product,L9 - VIP,Vegetarian,S,2026-03-14,Flight
+13,Harish Balan,harish.b@acmecorp.in,+91 33445 66778,Director Operations,Operations,L8 - VIP,Non-Vegetarian,L,2026-03-14,Flight
+14,Pooja Mehta,pooja.m@acmecorp.in,,Head of Design,Design,,Vegan,M,2026-03-14,Flight
+15,Kiran Varma,kiran.v@acmecorp.in,+91 22334 55667,VP Sales,Sales,L8 - VIP,Non-Vegetarian,XL,2026-03-15,Train
+16,John Smith,john.smith@acmecorp.in,+91 11223 44556,CEO,Leadership,L10 - VIP,Non-Vegetarian,L,2026-03-14,Flight
+17,Lavanya Krishnan,lavanya.k@acmecorp.in,+91 99001 22334,Finance Manager,Finance,L4 - Employee,Vegetarian,S,2026-03-15,Self Drive
+18,Gaurav Tiwari,gaurav.t@acmecorp.in,+91 88990 11223,Software Engineer,Engineering,L3 - Employee,Non-Vegetarian,M,2026-03-15,Flight
+19,Sneha Pillai,sneha.p@acmecorp.in,+91 77889 00112,Marketing Analyst,Marketing,L3 - Employee,Vegetarian,S,2026-03-15,Train
+20,Rahul Joshi,rahul.j@acmecorp.in,+91 66778 99001,Senior Data Scientist,Analytics,L5 - Employee,Non-Vegetarian,L,2026-03-14,Flight
+21,Duplicate Person,rajesh.k@acmecorp.in,+91 98765 43210,Software Engineer,Engineering,L3 - Employee,Vegetarian,L,2026-03-14,Flight
+22,Invalid Email Person,notanemail,+91 55555 55555,Some Role,Some Dept,L3 - Employee,Vegetarian,M,2026-03-14,Flight
+23,Missing Category,missing.cat@acmecorp.in,+91 44444 44444,Role,Dept,,Vegetarian,L,2026-03-14,Flight

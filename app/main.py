@@ -24,6 +24,7 @@ from app.api.v1.waitlists import event_waitlist_router, waitlist_router
 from app.api.v1.wallets import router as wallets_router
 from app.api.v1.microsites import router as microsites_router
 from app.api.v1.import_export import router as import_export_router
+from app.api.v1.etl_import import router as etl_import_router
 from app.api.v1.notifications import router as notifications_router
 from app.api.v1.websockets import router as ws_router
 from app.api.v1.analytics import router as analytics_router
@@ -105,6 +106,7 @@ app.include_router(public_waitlist_router, prefix="/api/v1")
 app.include_router(wallets_router, prefix="/api/v1")
 app.include_router(microsites_router, prefix="/api/v1")
 app.include_router(import_export_router, prefix="/api/v1")
+app.include_router(etl_import_router, prefix="/api/v1")
 app.include_router(notifications_router, prefix="/api/v1")
 app.include_router(public_booking_router, prefix="/api/v1")
 app.include_router(event_booking_router, prefix="/api/v1")
