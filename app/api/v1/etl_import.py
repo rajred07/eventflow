@@ -299,15 +299,19 @@ async def validate_import(
     #    the row and change the anomaly severity so the frontend knows it was Auto-Fixed.
     valid_cats_lower = [c.lower() for c in event_categories]
     for anomaly in ai_result.anomalies:
+        # Normalize issue_type: "Category Mismatch", "category mismatch", "category_mismatch" all match
+        normalized_type = anomaly.issue_type.lower().replace(" ", "_").replace("-", "_")
+        suggested = (anomaly.suggested_fix or "").strip().lower()
         if (
-            anomaly.issue_type.lower() in ("category mismatch", "category_mismatch")
-            and anomaly.suggested_fix.lower() in valid_cats_lower
+            normalized_type == "category_mismatch"
+            and suggested in valid_cats_lower
             and 0 <= anomaly.row_index < len(normalized)
         ):
             # Apply Gemini's fix automatically
-            normalized[anomaly.row_index]["category"] = anomaly.suggested_fix.lower()
-            # Downgrade severity so the UI can show this as a helpful green "Auto-fixed by AI"
+            normalized[anomaly.row_index]["category"] = suggested
+            # Downgrade severity so the UI shows this as a helpful green "Auto-fixed by AI"
             anomaly.severity = "Info (Auto-Fixed)"
+            logger.info(f"[ETL Auto-Fix] Row {anomaly.row_index}: '{anomaly.current_value}' → '{suggested}'")
 
     # 5. Yield warnings (cross-check room inventory)
     inventory = await _get_room_inventory(event_id, db)

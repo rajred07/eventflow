@@ -9,11 +9,14 @@ from app.models.user import User
 
 from app.core.microsites.service import (
     create_microsite,
+    get_microsite_for_event,
+    update_microsite,
     get_public_available_rooms,
     get_public_event_details,
 )
 from app.schemas.microsite import (
     MicrositeCreate,
+    MicrositeUpdate,
     MicrositeResponse,
     PublicEventDetailsResponse,
     PublicRoomOptionsPayload,
@@ -48,6 +51,37 @@ async def create_microsite_endpoint(
         db=db
     )
     return microsite
+
+@router.get(
+    "/events/{event_id}/microsite",
+    response_model=MicrositeResponse | None,
+    summary="Get the Event Microsite Configuration"
+)
+async def get_microsite_endpoint(
+    event_id: uuid.UUID,
+    current_user: User = Depends(require_role(["admin", "planner", "viewer"])),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Retrieves the current microsite configuration for a specific event.
+    """
+    return await get_microsite_for_event(event_id, current_user.tenant_id, db)
+
+@router.put(
+    "/events/{event_id}/microsite",
+    response_model=MicrositeResponse,
+    summary="Update the Event Microsite Configuration"
+)
+async def update_microsite_endpoint(
+    event_id: uuid.UUID,
+    data: MicrositeUpdate,
+    current_user: User = Depends(require_role(["admin", "planner"])),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Updates the microsite configuration.
+    """
+    return await update_microsite(event_id, current_user.tenant_id, data, db)
 
 # ---------------------------------------------------------------------------
 # Guest API (Unauthenticated, relies on Magic Link Booking Token)

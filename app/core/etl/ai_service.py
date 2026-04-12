@@ -183,50 +183,64 @@ async def call2_validate_dataset(
 
     masked_cols = [col for col, kind in column_classifications.items() if kind != "safe"]
 
-    # Build category rules context for Gemini
-    category_context = ""
-    if category_rules:
-        lines = []
-        for cat, rules in category_rules.items():
-            allowed = rules.get("allowed_room_types", [])
-            subsidy = rules.get("subsidy_per_night", 0)
-            lines.append(f"  - '{cat}': allowed rooms={allowed}, subsidy=\u20b9{subsidy}/night")
-        category_context = "\nEvent category business rules:\n" + "\n".join(lines)
+    # Send the raw category_rules JSON directly to Gemini.
+    # Gemini reads allowed_room_types, subsidy amounts, and category names
+    # to reason intelligently — no hardcoded hints needed.
+    valid_cats_str = ", ".join(f'"{c}"' for c in event_category_options) if event_category_options else "(none defined)"
+    category_rules_json = json.dumps(category_rules or {}, indent=2)
 
-    prompt = f"""You are a senior data quality analyst validating a bulk guest import for a corporate event.
+    prompt = f"""You are an intelligent data quality analyst validating a bulk guest import for a corporate event.
 
-Guest database schema:
-- name:     required string
-- email:    required, must match user@domain.tld format
-- phone:    optional
-- category: REQUIRED — must be EXACTLY one of: {event_category_options}
-- dietary_requirements: optional
-- extra_data: optional
-{category_context}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CATEGORY VALIDATION — NON-NEGOTIABLE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Valid categories for this event: {valid_cats_str}
+
+Full event category rules (use this as your SOLE reference to understand each category):
+{category_rules_json}
+
+These rules tell you what each category means: which room types it allows, what subsidy
+it offers, and any other business signals. Use this context to intelligently infer the
+correct category for any row where the CSV value doesn't exactly match.
+
+MANDATORY: Every row whose category value does NOT exactly match one of {valid_cats_str}
+(case-insensitive) MUST be flagged:
+  • issue_type  = "category_mismatch"  (exact string, underscore, lowercase)
+  • suggested_fix = the single best matching category from {valid_cats_str}
+  • current_value = the raw bad value from the CSV
+  • severity      = "warning" if you're confident, "error" if truly ambiguous
+  • Do NOT silently accept, skip, or guess without flagging.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Guest schema:
+  name     — required (masked for privacy)
+  email    — required, format: user@domain.tld
+  phone    — optional
+  category — required, must be exactly one of: {valid_cats_str}
 
 Confirmed column mapping (approved by planner):
 {json.dumps(confirmed_mapping, indent=2)}
 
-Privacy note — these columns are anonymized before reaching you:
-Masked columns: {masked_cols}
-  - Name columns:  [NAME_XXXXXX] tokens (SAME person = SAME token across rows)
-  - Email columns: u***@d***.tld format
-  - Phone columns: +** **** **** format
+Privacy masking:
+  Masked columns: {masked_cols}
+  • Names  → [NAME_XXXXXX]   — same token = same person (use for dup detection)
+  • Emails → [EMAIL_XXXXXX]  — same token = same email  (use for dup detection)
+  • Phones → digits replaced with *
 
-Your task — analyze ALL {len(masked_rows)} rows:
-1. FORMAT ERRORS: Email not matching u@d.tld, completely empty required fields
-2. CATEGORY MISMATCHES: Any category value that is NOT exactly one of {event_category_options}.
-   — Flag EVERY such row. Use the event business rules to deduce and suggest the correct exact category.
-   — For example, if the value is "L3 - Employee", the suggested fix should be "employee".
-   — If the value is "Director", use context to suggest "vip".
-3. DUPLICATE SUSPECTS: Rows sharing the same masked email token (u***@d***.tld matches) 
-   or same [NAME_XXXXXX] token — these are likely the same person
-4. MISSING REQUIRED: Empty/null name, email, or category
+Your tasks — check ALL {len(masked_rows)} rows:
+  1. format_error       — email not matching user@domain.tld, or empty required field
+  2. category_mismatch  — any category NOT exactly in {valid_cats_str};
+                          use the category_rules JSON to reason and suggest the right one
+  3. duplicate_suspects — rows sharing the same [NAME_XXXXXX] or [EMAIL_XXXXXX] token
+  4. missing_required   — null/empty name, email, or category
 
-Use row_index starting at 0 for the first row.
+Row indices start at 0. Do not skip any row. Flag every violation.
 
 Full masked dataset ({len(masked_rows)} rows):
 {json.dumps(masked_rows, indent=2)}"""
+
+
+    logger.info(f"[ETL Call 2] Sending {len(masked_rows)} rows to Gemini. Valid categories: {event_category_options}")
 
     response = await client.aio.models.generate_content(
         model=MODEL,
@@ -234,13 +248,27 @@ Full masked dataset ({len(masked_rows)} rows):
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
             response_schema=FullValidationResponse,
-            temperature=0.1,
+            temperature=0.0,  # deterministic — we want strict enforcement
         ),
     )
 
-    result = FullValidationResponse.model_validate_json(response.text)
+    # Log raw response so we can debug future Gemini behavior changes
+    raw_text = getattr(response, "text", None)
+    if not raw_text:
+        logger.error("[ETL Call 2] Gemini returned empty response!")
+        raise RuntimeError("Gemini returned an empty response for Call 2. Check model availability.")
+
+    logger.debug(f"[ETL Call 2] Raw Gemini response (first 500 chars): {raw_text[:500]}")
+
+    try:
+        result = FullValidationResponse.model_validate_json(raw_text)
+    except Exception as parse_err:
+        logger.error(f"[ETL Call 2] Failed to parse Gemini JSON. Error: {parse_err}. Raw: {raw_text[:1000]}")
+        raise RuntimeError(f"Gemini response could not be parsed: {parse_err}. Check uvicorn logs for raw output.")
+
     logger.info(
         f"[ETL Call 2] {result.total_rows_analyzed} rows analyzed. "
-        f"{len(result.anomalies)} anomalies, {len(result.duplicate_suspects)} duplicate groups."
+        f"{len(result.anomalies)} anomalies ({sum(1 for a in result.anomalies if a.issue_type == 'category_mismatch')} category), "
+        f"{len(result.duplicate_suspects)} dup groups."
     )
     return result

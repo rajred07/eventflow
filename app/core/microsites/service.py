@@ -11,7 +11,7 @@ from app.models.guest import Guest
 from app.models.microsite import Microsite
 from app.models.room_block import RoomBlock
 from app.models.room_block_allotment import RoomBlockAllotment
-from app.schemas.microsite import MicrositeCreate, PublicEventDetailsResponse, PublicRoomOption, PublicRoomOptionsPayload
+from app.schemas.microsite import MicrositeCreate, MicrositeUpdate, PublicEventDetailsResponse, PublicRoomOption, PublicRoomOptionsPayload
 
 async def create_microsite(event_id: uuid.UUID, tenant_id: uuid.UUID, data: MicrositeCreate, db: AsyncSession) -> Microsite:
     # 1. Verify Event
@@ -40,6 +40,35 @@ async def create_microsite(event_id: uuid.UUID, tenant_id: uuid.UUID, data: Micr
         is_published=data.is_published
     )
     db.add(microsite)
+    await db.commit()
+    await db.refresh(microsite)
+    return microsite
+
+async def get_microsite_for_event(event_id: uuid.UUID, tenant_id: uuid.UUID, db: AsyncSession) -> Microsite | None:
+    # 1. Verify Event
+    event_result = await db.execute(select(Event).where(Event.id == event_id, Event.tenant_id == tenant_id))
+    if not event_result.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Event not found")
+        
+    result = await db.execute(select(Microsite).where(Microsite.event_id == event_id))
+    return result.scalar_one_or_none()
+
+async def update_microsite(event_id: uuid.UUID, tenant_id: uuid.UUID, data: MicrositeUpdate, db: AsyncSession) -> Microsite:
+    microsite = await get_microsite_for_event(event_id, tenant_id, db)
+    if not microsite:
+        raise HTTPException(status_code=404, detail="Microsite not found. Create it first.")
+
+    update_data = data.model_dump(exclude_unset=True)
+    
+    if "slug" in update_data and update_data["slug"] != microsite.slug:
+         # Check if new slug exists
+         slug_result = await db.execute(select(Microsite).where(Microsite.slug == update_data["slug"]))
+         if slug_result.scalar_one_or_none():
+             raise HTTPException(status_code=400, detail="URL slug is already taken.")
+             
+    for field, value in update_data.items():
+        setattr(microsite, field, value)
+        
     await db.commit()
     await db.refresh(microsite)
     return microsite
@@ -87,7 +116,10 @@ async def get_public_event_details(slug: str, guest_token: uuid.UUID, db: AsyncS
         guest_category=guest.category,
         microsite_theme_color=microsite.theme_color,
         microsite_hero_image_url=microsite.hero_image_url,
-        microsite_welcome_message=microsite.welcome_message
+        microsite_tagline=microsite.tagline,
+        microsite_welcome_message=microsite.welcome_message,
+        microsite_support_email=microsite.support_email,
+        microsite_support_phone=microsite.support_phone,
     )
 
 async def get_public_available_rooms(slug: str, guest_token: uuid.UUID, db: AsyncSession) -> PublicRoomOptionsPayload:

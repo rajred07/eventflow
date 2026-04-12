@@ -9,16 +9,22 @@ from pydantic import BaseModel, Field
 
 class MicrositeCreate(BaseModel):
     slug: str = Field(..., description="Unique URL slug (e.g., e2e-offsite-2026)")
-    theme_color: Optional[str] = Field("#0f172a", description="Hex color code")
+    theme_color: Optional[str] = Field("#c29b40", description="Hex accent color code")
     hero_image_url: Optional[str] = None
+    tagline: Optional[str] = Field(None, description="Sub-headline shown on the hero, e.g. 'THE CURATED SANCTUARY'")
     welcome_message: Optional[str] = None
+    support_email: Optional[str] = None
+    support_phone: Optional[str] = None
     is_published: bool = True
 
 class MicrositeUpdate(BaseModel):
     slug: Optional[str] = None
     theme_color: Optional[str] = None
     hero_image_url: Optional[str] = None
+    tagline: Optional[str] = None
     welcome_message: Optional[str] = None
+    support_email: Optional[str] = None
+    support_phone: Optional[str] = None
     is_published: Optional[bool] = None
 
 class MicrositeResponse(BaseModel):
@@ -28,7 +34,10 @@ class MicrositeResponse(BaseModel):
     slug: str
     theme_color: str
     hero_image_url: Optional[str]
+    tagline: Optional[str]
     welcome_message: Optional[str]
+    support_email: Optional[str]
+    support_phone: Optional[str]
     is_published: bool
 
     class Config:
@@ -49,7 +58,10 @@ class PublicEventDetailsResponse(BaseModel):
     guest_category: str
     microsite_theme_color: str
     microsite_hero_image_url: Optional[str]
+    microsite_tagline: Optional[str]
     microsite_welcome_message: Optional[str]
+    microsite_support_email: Optional[str]
+    microsite_support_phone: Optional[str]
 
 
 class PublicRoomOption(BaseModel):

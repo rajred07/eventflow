@@ -14,9 +14,12 @@ class Microsite(Base):
     event_id = Column(UUID(as_uuid=True), ForeignKey("events.id", ondelete="CASCADE"), nullable=False, unique=True)
     
     slug = Column(String(255), unique=True, nullable=False, index=True)
-    theme_color = Column(String(50), default="#0f172a") # Default Slate-900
+    theme_color = Column(String(50), default="#c29b40")
     hero_image_url = Column(String(1024), nullable=True)
+    tagline = Column(String(255), nullable=True)  # e.g. "THE CURATED SANCTUARY"
     welcome_message = Column(Text, nullable=True)
+    support_email = Column(String(255), nullable=True)
+    support_phone = Column(String(50), nullable=True)
     
     is_published = Column(Boolean, default=False)
     
