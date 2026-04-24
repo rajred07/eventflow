@@ -45,6 +45,8 @@ else:
 # asyncio.run() with a global async_engine causes severe asyncpg socket conflicts.
 # By using pure blocking psycopg2 queries, we guarantee perfect stability.
 SYNC_DB_URL = settings.DATABASE_URL.replace("postgresql+asyncpg", "postgresql+psycopg2")
+# psycopg2 uses 'sslmode=require' but asyncpg uses 'ssl=require' — fix that
+SYNC_DB_URL = SYNC_DB_URL.replace("ssl=require", "sslmode=require")
 sync_engine = create_engine(SYNC_DB_URL, pool_pre_ping=True)
 SyncSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=sync_engine)
 

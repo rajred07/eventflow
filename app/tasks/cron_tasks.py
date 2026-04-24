@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 # ─── Synchronous DB engine (same pattern as email_tasks.py) ───────────────────
 SYNC_DB_URL = settings.DATABASE_URL.replace("postgresql+asyncpg", "postgresql+psycopg2")
+SYNC_DB_URL = SYNC_DB_URL.replace("ssl=require", "sslmode=require")
 sync_engine = create_engine(SYNC_DB_URL, pool_pre_ping=True)
 SyncSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=sync_engine)
 
