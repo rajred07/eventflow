@@ -4,10 +4,10 @@
 set -e
 
 echo "Starting Celery Worker..."
-celery -A app.worker.celery_app worker --loglevel=info --concurrency=1 &
+celery -A app.celery_app worker --loglevel=info --concurrency=1 &
 
 echo "Starting Celery Beat..."
-celery -A app.worker.celery_app beat --loglevel=info &
+celery -A app.celery_app beat --loglevel=info &
 
 echo "Running Alembic Migrations..."
 alembic upgrade head
