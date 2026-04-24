@@ -35,12 +35,20 @@ from app.core.websockets.manager import manager
 
 logger = logging.getLogger(__name__)
 
-# Dedicated Redis connection for Pub/Sub (separate from the main pool
-# because Pub/Sub connections cannot be shared with regular commands).
+redis_url = settings.REDIS_URL
+if "?ssl_cert_reqs=CERT_NONE" in redis_url:
+    redis_url = redis_url.replace("?ssl_cert_reqs=CERT_NONE", "")
+
+kwargs = {
+    "decode_responses": True,
+    "max_connections": 5,
+}
+if redis_url.startswith("rediss://"):
+    kwargs["ssl_cert_reqs"] = "none"
+
 _pubsub_pool = ConnectionPool.from_url(
-    settings.REDIS_URL,
-    decode_responses=True,
-    max_connections=5,
+    redis_url,
+    **kwargs
 )
 
 

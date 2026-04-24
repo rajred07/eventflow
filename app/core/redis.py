@@ -11,16 +11,21 @@ from redis.asyncio import ConnectionPool, Redis
 
 from app.config import settings
 
+# Strip the CERT_NONE string which crashes redis.asyncio but might be in the env var for Celery
+redis_url = settings.REDIS_URL
+if "?ssl_cert_reqs=CERT_NONE" in redis_url:
+    redis_url = redis_url.replace("?ssl_cert_reqs=CERT_NONE", "")
+
 # Create a global connection pool
 kwargs = {
     "decode_responses": True,
     "max_connections": 100,
 }
-if settings.REDIS_URL.startswith("rediss://"):
+if redis_url.startswith("rediss://"):
     kwargs["ssl_cert_reqs"] = "none"
 
 pool = ConnectionPool.from_url(
-    settings.REDIS_URL,
+    redis_url,
     **kwargs
 )
 
