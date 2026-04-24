@@ -63,6 +63,9 @@ async def hold_room_route(
     except ValueError as e:
         raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
+        print(f"💥 Internal server error in hold_room_route: {e}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

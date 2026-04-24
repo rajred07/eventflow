@@ -12,10 +12,16 @@ from redis.asyncio import ConnectionPool, Redis
 from app.config import settings
 
 # Create a global connection pool
+kwargs = {
+    "decode_responses": True,
+    "max_connections": 100,
+}
+if settings.REDIS_URL.startswith("rediss://"):
+    kwargs["ssl_cert_reqs"] = "none"
+
 pool = ConnectionPool.from_url(
     settings.REDIS_URL,
-    decode_responses=True,
-    max_connections=100,
+    **kwargs
 )
 
 async def get_redis() -> AsyncGenerator[Redis, None]:

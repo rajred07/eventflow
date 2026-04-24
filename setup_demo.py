@@ -1,7 +1,7 @@
 import requests
 import time
 
-BASE_URL = "http://127.0.0.1:8000/api/v1"
+BASE_URL = "https://eventflow-api-8x8p.onrender.com/api/v1"
 
 def print_step(title):
     print(f"\n{'='*60}")
@@ -21,7 +21,7 @@ def run_setup():
     print_step("1. Registering Tenant & Admin")
     email = f"admin_{int(time.time())}@e2e.com"
     r = session.post(f"{BASE_URL}/auth/register", json={
-        "tenant_name": "E2E Testing Corp",
+        "tenant_name": f"E2E Testing Corp {int(time.time())}",
         "tenant_type": "corporate",
         "name": "E2E Admin",
         "email": email,
@@ -161,9 +161,9 @@ def run_setup():
     print("\n" + "="*80)
     print("   EVENTFLOW LIFECYCLE TEST — MICROSITE LINKS")
     print("="*80)
-    print(f"\n   Event page: http://localhost:3000/{slug}?token=<TOKEN>")
-    print(f"   Backend:    http://localhost:8000")
-    print(f"   API Docs:   http://localhost:8000/docs\n")
+    print(f"\n   Event page: https://multi-tennat-mice.vercel.app/{slug}?token=<TOKEN>")
+    print(f"   Backend:    https://eventflow-api-8x8p.onrender.com")
+    print(f"   API Docs:   https://eventflow-api-8x8p.onrender.com/docs\n")
     print("="*80)
 
     # Print subsidy cheat sheet
@@ -182,7 +182,7 @@ def run_setup():
     print("─"*80)
     for g in guests:
         if g["category"] == "employee":
-            link = f"http://localhost:3000/{slug}?token={g['token']}"
+            link = f"https://multi-tennat-mice.vercel.app/{slug}?token={g['token']}"
             print(f"\n  [{g['name']}] — {g['scenario']}")
             print(f"  URL: {link}")
 
@@ -191,7 +191,7 @@ def run_setup():
     print("─"*80)
     for g in guests:
         if g["category"] == "vip":
-            link = f"http://localhost:3000/{slug}?token={g['token']}"
+            link = f"https://multi-tennat-mice.vercel.app/{slug}?token={g['token']}"
             print(f"\n  [{g['name']}] — {g['scenario']}")
             print(f"  URL: {link}")
 
