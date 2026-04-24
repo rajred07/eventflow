@@ -25,13 +25,17 @@ from app.middleware.auth import get_current_user
 from app.models.tenant import Tenant
 from app.models.user import User
 from app.schemas.auth import (
+    ChangePasswordRequest,
     InviteMemberRequest,
     LoginRequest,
+    OrgResponse,
     RefreshRequest,
     RegisterRequest,
     TeamMemberResponse,
     TokenResponse,
     UpdateMemberRequest,
+    UpdateOrgRequest,
+    UpdateProfileRequest,
     UserResponse,
 )
 
@@ -344,3 +348,145 @@ async def deactivate_team_member(
 
     member.is_active = False
     await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Account Settings — profile, password, org settings
+# ---------------------------------------------------------------------------
+
+
+@router.patch(
+    "/me",
+    response_model=UserResponse,
+    summary="Update current user's profile (name / email)",
+)
+async def update_profile(
+    data: UpdateProfileRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Any logged-in user can update their own name and email."""
+    from sqlalchemy import text
+    await db.execute(text("SET app.bypass_rls = 'on'"))
+
+    if data.email and data.email != current_user.email:
+        # Check global uniqueness
+        clash = await db.execute(select(User).where(User.email == data.email))
+        if clash.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Email '{data.email}' is already in use",
+            )
+        current_user.email = data.email
+
+    if data.name:
+        current_user.name = data.name
+
+    await db.commit()
+    await db.refresh(current_user)
+    return current_user
+
+
+@router.post(
+    "/change-password",
+    status_code=status.HTTP_200_OK,
+    summary="Change current user's password",
+)
+async def change_password(
+    data: ChangePasswordRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Verify the current password then store a new hash."""
+    from sqlalchemy import text
+    await db.execute(text("SET app.bypass_rls = 'on'"))
+
+    if not verify_password(data.current_password, current_user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect",
+        )
+
+    current_user.password_hash = hash_password(data.new_password)
+    await db.commit()
+    return {"message": "Password updated successfully"}
+
+
+@router.get(
+    "/tenant",
+    response_model=OrgResponse,
+    summary="Get current tenant / organization info",
+)
+async def get_tenant(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return the org details for the current user's tenant."""
+    from sqlalchemy import text
+    await db.execute(text("SET app.bypass_rls = 'on'"))
+
+    result = await db.execute(
+        select(Tenant).where(Tenant.id == current_user.tenant_id)
+    )
+    tenant = result.scalar_one_or_none()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    # Extract logo_url from settings JSONB (no migration needed)
+    logo_url = (tenant.settings or {}).get("logo_url")
+    return OrgResponse(
+        id=tenant.id,
+        name=tenant.name,
+        slug=tenant.slug,
+        type=tenant.type,
+        description=tenant.description,
+        logo_url=logo_url,
+        is_active=tenant.is_active,
+    )
+
+
+@router.patch(
+    "/tenant",
+    response_model=OrgResponse,
+    summary="Update organization name, logo, description (Admin only)",
+)
+async def update_tenant(
+    data: UpdateOrgRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Admin-only. Update tenant branding/info stored in the settings JSONB."""
+    from sqlalchemy import text
+    await db.execute(text("SET app.bypass_rls = 'on'"))
+
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admins only")
+
+    result = await db.execute(
+        select(Tenant).where(Tenant.id == current_user.tenant_id)
+    )
+    tenant = result.scalar_one_or_none()
+    if not tenant:
+        raise HTTPException(status_code=404, detail="Tenant not found")
+
+    if data.name:
+        tenant.name = data.name
+    if data.description is not None:
+        tenant.description = data.description
+    if data.logo_url is not None:
+        settings = dict(tenant.settings or {})
+        settings["logo_url"] = data.logo_url
+        tenant.settings = settings
+
+    await db.commit()
+
+    logo_url = (tenant.settings or {}).get("logo_url")
+    return OrgResponse(
+        id=tenant.id,
+        name=tenant.name,
+        slug=tenant.slug,
+        type=tenant.type,
+        description=tenant.description,
+        logo_url=logo_url,
+        is_active=tenant.is_active,
+    )
