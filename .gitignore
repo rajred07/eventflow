@@ -36,3 +36,5 @@ generate_frontend_links.py
 reset_db.py
 setup_demo.py
 test_import.csv
+backenddeepdive.md
+chat.md
