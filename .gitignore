@@ -17,3 +17,22 @@ wheels/
 .idea/
 
 celerybeat-schedule
+# Scratch and Log Files
+error_log.txt
+test_logs.txt
+test_logs_ascii.txt
+frontenddesignidea
+full_test.py
+test.py
+test_500.py
+test_email_direct.py
+test_etl_interactive.py
+test_frontend.py
+test_phase5.py
+test_phase6.py
+test_phase8.py
+check_emails.py
+generate_frontend_links.py
+reset_db.py
+setup_demo.py
+test_import.csv
